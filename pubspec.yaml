@@ -40,7 +40,7 @@ dependencies:
 
   # Contacts
   flutter_contacts: ^1.1.7
-  contacts_service: ^0.6.3
+  
 
   # Permissions
   permission_handler: ^11.3.0
