@@ -1,0 +1,76 @@
+name: smart_assistant_ai
+description: Smart Voice Assistant App
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.6
+
+  # Speech Recognition
+  speech_to_text: ^6.6.0
+  logger: ^2.0.2
+  # Text To Speech
+  flutter_tts: ^3.8.5
+  notification_listener_service: ^0.0.3
+  # Background Assistant
+  flutter_foreground_task: ^6.2.0
+  flutter_background_service: ^5.0.5
+
+  # Open Apps
+  device_apps: ^2.2.0
+
+  # System Control
+  android_intent_plus: ^4.0.3
+  volume_controller: ^2.0.7
+
+  # Camera
+  camera: ^0.10.5+9
+
+  # Calls
+  phone_state: ^1.0.3
+  
+  telephony: ^0.2.0
+
+  # Contacts
+  flutter_contacts: ^1.1.7
+  contacts_service: ^0.6.3
+
+  # Permissions
+  permission_handler: ^11.3.0
+
+  # Storage
+  shared_preferences: ^2.2.3
+
+  # Internet
+  http: ^1.2.1
+
+  # Location
+  geolocator: ^11.0.0
+
+  # Maps
+  google_maps_flutter: ^2.6.1
+
+  # Launcher
+  url_launcher: ^6.3.0
+
+  # Animations
+  lottie: ^2.7.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^3.0.2
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/
