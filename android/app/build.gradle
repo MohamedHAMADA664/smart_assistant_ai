@@ -1,13 +1,14 @@
-plugins {
-    id "com.android.application"
-    id "org.jetbrains.kotlin.android"
-    id "dev.flutter.flutter-gradle-plugin"
-}
-
 android {
-    namespace = "com.example.smart_assistant_ai"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    namespace "com.example.smart_assistant_ai"
+    compileSdkVersion 35
+
+    defaultConfig {
+        applicationId "com.example.smart_assistant_ai"
+        minSdkVersion flutter.minSdkVersion
+        targetSdkVersion 35
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+    }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -15,24 +16,12 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = "17"
-    }
-
-    defaultConfig {
-        applicationId = "com.example.smart_assistant_ai"
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        jvmTarget = '17'
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            signingConfig signingConfigs.debug
         }
     }
-}
-
-flutter {
-    source "../.."
 }
