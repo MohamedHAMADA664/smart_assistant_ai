@@ -369,4 +369,39 @@ class VoiceListenerService {
 
   bool _containsAny(String text, List<String> values) {
     for (final value in values) {
-      if (
+      if (text.contains(value)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  void _scheduleRestart() {
+    if (_isRestarting) {
+      return;
+    }
+
+    _restartDebounceTimer?.cancel();
+    _restartDebounceTimer = Timer(_restartDelay, () async {
+      if (_isListening) {
+        return;
+      }
+
+      _isRestarting = true;
+      try {
+        await startListening();
+      } finally {
+        _isRestarting = false;
+      }
+    });
+  }
+
+  String _normalize(String text) {
+    return text
+        .toLowerCase()
+        .trim()
+        .replaceAll(RegExp(r'[،,.!?؟]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ');
+  }
+}
