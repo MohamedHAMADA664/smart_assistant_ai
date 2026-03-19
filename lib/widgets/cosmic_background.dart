@@ -27,7 +27,7 @@ class CosmicBackground extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             Container(
-              color: Colors.black.withOpacity(0.08),
+              color: Colors.black.withValues(alpha: 0.08),
             ),
             child,
           ],
