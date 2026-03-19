@@ -44,6 +44,10 @@ class OnlineAiService {
       return false;
     }
 
+    if (_looksLikeDirectExecutionCommand(normalizedText)) {
+      return false;
+    }
+
     return true;
   }
 
@@ -63,10 +67,19 @@ class OnlineAiService {
       return false;
     }
 
+    if (_gateway == null) {
+      return false;
+    }
+
+    // مهم جدًا:
+    // الأوامر المحلية التنفيذية لا يجب أن تذهب للأونلاين AI
+    if (_looksLikeDirectExecutionCommand(normalizedText)) {
+      return false;
+    }
+
     return _looksLikeGeneralQuestion(normalizedText) ||
         _looksLikeCreativeRequest(normalizedText) ||
-        _looksLikeKnowledgeRequest(normalizedText) ||
-        _looksLikeCommandPlanningCandidate(normalizedText);
+        _looksLikeKnowledgeRequest(normalizedText);
   }
 
   // ================================
@@ -130,10 +143,10 @@ class OnlineAiService {
         status: OnlineAiStatus.timeout,
         message: 'انتهت مهلة انتظار الرد من الذكاء عبر الإنترنت',
       );
-    } catch (_) {
-      return const OnlineAiResult(
+    } catch (e) {
+      return OnlineAiResult(
         status: OnlineAiStatus.failed,
-        message: 'حدث خطأ أثناء التواصل مع الذكاء عبر الإنترنت',
+        message: 'حدث خطأ أثناء التواصل مع الذكاء عبر الإنترنت: $e',
       );
     }
   }
@@ -253,10 +266,10 @@ class OnlineAiService {
         status: OnlineAiSuggestionStatus.timeout,
         message: 'انتهت مهلة تفسير الأمر عبر الإنترنت',
       );
-    } catch (_) {
-      return const OnlineAiSuggestedCommandPlan(
+    } catch (e) {
+      return OnlineAiSuggestedCommandPlan(
         status: OnlineAiSuggestionStatus.failed,
-        message: 'حدث خطأ أثناء تفسير الأمر عبر الإنترنت',
+        message: 'حدث خطأ أثناء تفسير الأمر عبر الإنترنت: $e',
       );
     }
   }
@@ -352,7 +365,7 @@ class OnlineAiService {
     );
   }
 
-  bool _looksLikeCommandPlanningCandidate(String text) {
+  bool _looksLikeDirectExecutionCommand(String text) {
     return _containsAny(
       text,
       const [
@@ -360,24 +373,32 @@ class OnlineAiService {
         'شغل',
         'شغلي',
         'شغللي',
+        'افتحلي',
         'ابعت',
+        'ابعتلي',
         'ابعث',
         'ارسل',
         'أرسل',
         'اتصل',
         'كلم',
-        'ابحث',
-        'دوّر',
-        'نزل',
-        'ثبت',
-        'شوف',
         'روح',
         'ودي',
+        'دوّر في',
+        'دور في',
+        'افتح المتجر',
+        'نزل',
+        'ثبت',
+        'ارفع الصوت',
+        'وطي الصوت',
+        'اكتم الصوت',
+        'افتح الواي فاي',
+        'افتح البلوتوث',
+        'افتح الموقع',
+        'افتح الاعدادات',
         'open',
         'launch',
         'send',
         'call',
-        'search',
         'install',
         'play',
       ],
