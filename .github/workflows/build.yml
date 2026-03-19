@@ -44,11 +44,7 @@ jobs:
           import re
 
           pub_cache = pathlib.Path.home() / ".pub-cache" / "hosted" / "pub.dev"
-          if not pub_cache.exists():
-              raise SystemExit("pub cache not found")
-
           gradle_files = list(pub_cache.glob("*/android/build.gradle"))
-          patched = []
 
           for gradle_file in gradle_files:
               text = gradle_file.read_text(encoding="utf-8", errors="ignore")
@@ -72,22 +68,13 @@ jobs:
                   safe_name = gradle_file.parent.parent.name.split("-")[0].replace(".", "_").replace("-", "_")
                   namespace_value = f"patched.{safe_name}"
 
-              new_text, count = re.subn(
+              new_text = re.sub(
                   r'android\s*\{',
                   f'android {{\n    namespace "{namespace_value}"',
                   text,
                   count=1,
               )
-
-              if count > 0:
-                  gradle_file.write_text(new_text, encoding="utf-8")
-                  patched.append((str(gradle_file), namespace_value))
-
-          print("Patched files:")
-          for path, namespace in patched:
-              print(f"{path} -> {namespace}")
-
-          print(f"Total patched: {len(patched)}")
+              gradle_file.write_text(new_text, encoding="utf-8")
           PY
 
       - name: Flutter clean
@@ -96,12 +83,15 @@ jobs:
       - name: Analyze (non-blocking)
         run: flutter analyze || true
 
-      - name: Build Release APK
-        run: flutter build apk --release
+      - name: Build Release APK with Gradle
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew app:assembleRelease --no-daemon
 
       - name: Upload Release APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: app-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
