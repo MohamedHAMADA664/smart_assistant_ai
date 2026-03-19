@@ -1,52 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- ============================= -->
-    <!-- NETWORK -->
-    <!-- ============================= -->
     <uses-permission android:name="android.permission.INTERNET" />
-
-    <!-- ============================= -->
-    <!-- AUDIO / MICROPHONE -->
-    <!-- ============================= -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
-    <!-- ============================= -->
-    <!-- CONTACTS -->
-    <!-- ============================= -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-
-    <!-- ============================= -->
-    <!-- CALLS -->
-    <!-- ============================= -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
-
-    <!-- ============================= -->
-    <!-- CAMERA -->
-    <!-- ============================= -->
     <uses-permission android:name="android.permission.CAMERA" />
-
-    <!-- ============================= -->
-    <!-- FOREGROUND SERVICE -->
-    <!-- ============================= -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-
-    <!-- ============================= -->
-    <!-- NOTIFICATIONS -->
-    <!-- ============================= -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- ============================= -->
-    <!-- OVERLAY -->
-    <!-- ============================= -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-
-    <!-- ============================= -->
-    <!-- BOOT -->
-    <!-- ============================= -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
@@ -54,18 +19,12 @@
         android:icon="@mipmap/ic_launcher"
         android:label="smart_assistant_ai">
 
-        <!-- ============================= -->
-        <!-- FOREGROUND SERVICE -->
-        <!-- ============================= -->
         <service
-            <service
-                android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
-                android:description="Smart Assistant AI"
-                android:exported="false"
-                android:foregroundServiceType="microphone" />
-        <!-- ============================= -->
-        <!-- CALL RECEIVER -->
-        <!-- ============================= -->
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:description="Smart Assistant AI"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <receiver
             android:name=".CallReceiver"
             android:enabled="true"
@@ -75,9 +34,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- ============================= -->
-        <!-- BOOT RECEIVER -->
-        <!-- ============================= -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
@@ -87,17 +43,14 @@
             </intent-filter>
         </receiver>
 
-        <!-- ============================= -->
-        <!-- MAIN ACTIVITY -->
-        <!-- ============================= -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:exported="true"
-            android:hardwareAccelerated="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
             <meta-data
@@ -110,17 +63,11 @@
             </intent-filter>
         </activity>
 
-        <!-- ============================= -->
-        <!-- FLUTTER EMBEDDING -->
-        <!-- ============================= -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
 
-    <!-- ============================= -->
-    <!-- QUERIES -->
-    <!-- ============================= -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
