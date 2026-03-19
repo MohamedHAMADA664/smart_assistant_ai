@@ -54,10 +54,6 @@ class VoiceListenerService {
   bool get isWakeWordActivated => _wakeWordActivated;
   bool get isWaitingCallResponse => _isWaitingCallResponse;
 
-  // =========================
-  // INITIALIZE
-  // =========================
-
   Future<void> initialize() async {
     if (_isInitialized) {
       _logger.d('VoiceListenerService already initialized');
@@ -92,10 +88,6 @@ class VoiceListenerService {
       );
     }
   }
-
-  // =========================
-  // START LISTENING
-  // =========================
 
   Future<void> startListening() async {
     if (_isStartingListening) {
@@ -133,7 +125,7 @@ class VoiceListenerService {
 
       localeId ??= await _speech.systemLocale().then((value) => value?.localeId);
 
-      final started = await _speech.listen(
+      await _speech.listen(
         onResult: _onSpeechResult,
         listenFor: const Duration(minutes: 1),
         pauseFor: const Duration(seconds: 4),
@@ -143,12 +135,8 @@ class VoiceListenerService {
         localeId: localeId,
       );
 
-      _isListening = started;
-      _logger.i('Voice listening started: $_isListening, locale: $localeId');
-
-      if (!started) {
-        _scheduleRestart();
-      }
+      _isListening = true;
+      _logger.i('Voice listening started, locale: $localeId');
     } catch (e, stackTrace) {
       _isListening = false;
       _logger.e(
@@ -161,10 +149,6 @@ class VoiceListenerService {
       _isStartingListening = false;
     }
   }
-
-  // =========================
-  // STOP LISTENING
-  // =========================
 
   Future<void> stopListening() async {
     _restartTimer?.cancel();
@@ -187,19 +171,11 @@ class VoiceListenerService {
     }
   }
 
-  // =========================
-  // DISPOSE
-  // =========================
-
   Future<void> dispose() async {
     _restartTimer?.cancel();
     await stopListening();
     _callEventsChannel.setMethodCallHandler(null);
   }
-
-  // =========================
-  // SPEECH CALLBACKS
-  // =========================
 
   void _onSpeechStatus(String status) {
     _logger.d('Speech status: $status');
@@ -221,8 +197,8 @@ class VoiceListenerService {
     }
   }
 
-  void _onSpeechError(SpeechRecognitionError error) {
-    _logger.e('Speech error: ${error.errorMsg} / permanent: ${error.permanent}');
+  void _onSpeechError(dynamic error) {
+    _logger.e('Speech error: $error');
     _isListening = false;
 
     if (_isAssistantSpeaking) {
@@ -232,9 +208,9 @@ class VoiceListenerService {
     _scheduleRestart();
   }
 
-  Future<void> _onSpeechResult(SpeechRecognitionResult result) async {
+  Future<void> _onSpeechResult(dynamic result) async {
     try {
-      final text = _normalize(result.recognizedWords);
+      final text = _normalize(result.recognizedWords as String? ?? '');
 
       if (text.isEmpty) {
         return;
@@ -246,9 +222,6 @@ class VoiceListenerService {
         return;
       }
 
-      // =========================
-      // CALL RESPONSE MODE
-      // =========================
       if (_isWaitingCallResponse) {
         final commandResult = await _systemController.handleCommand(text);
 
@@ -260,9 +233,6 @@ class VoiceListenerService {
         return;
       }
 
-      // =========================
-      // WAKE WORD DETECTION
-      // =========================
       if (!_wakeWordActivated) {
         if (_wakeWordService.detectWakeWord(text)) {
           final commandOnly = _removeWakeWord(text);
@@ -278,18 +248,12 @@ class VoiceListenerService {
         return;
       }
 
-      // =========================
-      // WAKE SESSION TIMEOUT
-      // =========================
       if (_isWakeSessionExpired()) {
         _logger.d('Wake session expired');
         _clearWakeSession();
         return;
       }
 
-      // =========================
-      // NORMAL COMMAND ROUTING
-      // =========================
       await _handleAssistantCommand(text);
     } catch (e, stackTrace) {
       _logger.e(
@@ -299,10 +263,6 @@ class VoiceListenerService {
       );
     }
   }
-
-  // =========================
-  // COMMAND HANDLING
-  // =========================
 
   Future<void> _handleAssistantCommand(String text) async {
     await _pauseListeningForAssistantSpeech();
@@ -322,10 +282,6 @@ class VoiceListenerService {
       await _resumeListeningAfterAssistantSpeech();
     }
   }
-
-  // =========================
-  // CALL EVENTS
-  // =========================
 
   Future<void> _handleNativeCallEvent(MethodCall call) async {
     if (call.method != 'incomingCall') {
@@ -353,10 +309,6 @@ class VoiceListenerService {
       await _resumeListeningAfterAssistantSpeech();
     }
   }
-
-  // =========================
-  // SPEAK / PAUSE HELPERS
-  // =========================
 
   Future<void> _speakAndResume(String text) async {
     await _pauseListeningForAssistantSpeech();
@@ -391,10 +343,6 @@ class VoiceListenerService {
     _isAssistantSpeaking = false;
     await startListening();
   }
-
-  // =========================
-  // HELPERS
-  // =========================
 
   String _removeWakeWord(String text) {
     var cleaned = text;
