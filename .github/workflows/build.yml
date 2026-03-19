@@ -1,65 +1,55 @@
 name: smart_assistant_ai
-description: "A new Flutter project."
-
+description: Smart Voice Assistant App
 publish_to: 'none'
 
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.5.3
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
-  speech_to_text: ^7.0.0
-  flutter_tts: ^4.0.2
-  permission_handler: ^11.3.1
-  url_launcher: ^6.3.0
-  image_picker: ^1.1.2
-  contacts_service: ^0.6.3
-  telephony: ^0.2.0
-  device_info_plus: ^10.1.2
-  shared_preferences: ^2.3.2
-  http: ^1.2.2
-  android_intent_plus: ^5.1.0
-  flutter_local_notifications: ^17.2.3
-  workmanager: ^0.5.2
-  path_provider: ^2.1.4
-  record: ^5.1.2
-  just_audio: ^0.9.40
-  connectivity_plus: ^6.0.5
-  intl: ^0.19.0
-  package_info_plus: ^8.0.2
-  battery_plus: ^6.0.2
-  volume_controller: ^2.0.8
-  camera: ^0.11.0+2
-  google_mlkit_text_recognition: ^0.13.0
-  google_mlkit_face_detection: ^0.11.0
-  google_mlkit_barcode_scanning: ^0.12.1
-  flutter_overlay_window: ^0.4.5
-  system_alert_window: ^2.0.6
-  flutter_background_service: ^5.0.10
-  flutter_background_service_android: ^6.2.4
-  socket_io_client: ^3.0.0
-  audioplayers: ^6.1.0
-  flutter_contacts: ^1.1.9+2
-  call_log: ^5.0.1
-  phone_state: ^1.0.5
-  flutter_callkit_incoming: ^2.0.4+2
+  cupertino_icons: ^1.0.6
+
+  # Voice
+  speech_to_text: ^6.6.0
+  flutter_tts: ^3.8.5
+  logger: ^2.0.2
+
+  # Background
+  flutter_foreground_task: ^6.2.0
+
+  # Notifications
+  notification_listener_service: ^0.0.3
+
+  # Apps / Intents / System
   device_apps: ^2.2.0
-  installed_apps: ^1.5.0
-  usage_stats: ^1.3.1
-  notification_listener_service: ^0.3.3
-  accessibility_service: ^1.2.0
-  speech_to_text_continuous: ^6.5.3
+  android_intent_plus: ^4.0.3
+  volume_controller: ^2.0.7
+  url_launcher: ^6.3.0
+
+  # Camera
+  camera: ^0.10.5+9
+
+  # Calls
+  phone_state: ^1.0.3
+
+  # Contacts
+  flutter_contacts: ^1.1.7
+
+  # Permissions
+  permission_handler: ^11.3.0
+
+  # Storage
+  shared_preferences: ^2.2.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  flutter_lints: ^4.0.0
+  flutter_lints: ^3.0.2
 
 flutter:
   uses-material-design: true
