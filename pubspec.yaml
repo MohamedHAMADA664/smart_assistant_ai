@@ -30,6 +30,9 @@ dependencies:
   volume_controller: ^2.0.7
   url_launcher: ^6.3.0
 
+  # Network / Online AI
+  http: ^1.2.2
+
   # Camera
   camera: ^0.10.5+9
 
@@ -53,4 +56,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
