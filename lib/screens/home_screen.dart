@@ -5,6 +5,7 @@ import '../screens/settings_screen.dart';
 import '../services/app_control_service.dart';
 import '../services/assistant_profile_service.dart';
 import '../services/background_assistant_service.dart';
+import '../services/voice_listener_service.dart';
 import '../widgets/ai_orb.dart';
 import '../widgets/cosmic_background.dart';
 
@@ -15,14 +16,16 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final AssistantProfileService _assistantProfileService =
       AssistantProfileService();
   final AppControlService _appControlService = AppControlService();
+  final VoiceListenerService _voiceListenerService = VoiceListenerService();
 
   bool _assistantRunning = false;
   bool _isBusy = false;
   bool _isProfileLoading = true;
+  bool _isInitializingVoice = false;
 
   String _assistantName = 'مساعدي';
   String _wakeWord = 'يا مساعدي';
@@ -30,7 +33,26 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeScreen();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _voiceListenerService.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_assistantRunning) {
+      return;
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      _restoreVoiceListeningIfNeeded();
+    }
   }
 
   // =========================
@@ -42,6 +64,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _loadAssistantStatus(),
       _loadAssistantProfile(),
     ]);
+
+    await _restoreVoiceListeningIfNeeded();
   }
 
   // =========================
@@ -101,6 +125,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // =========================
+  // RESTORE VOICE LISTENING
+  // =========================
+
+  Future<void> _restoreVoiceListeningIfNeeded() async {
+    if (!_assistantRunning) {
+      return;
+    }
+
+    if (_isInitializingVoice) {
+      return;
+    }
+
+    _isInitializingVoice = true;
+
+    try {
+      await _voiceListenerService.initialize();
+
+      if (!_voiceListenerService.isListening) {
+        await _voiceListenerService.startListening();
+      }
+    } catch (_) {
+      _showSnackBar('تعذر تهيئة الاستماع الصوتي');
+    } finally {
+      _isInitializingVoice = false;
+    }
+  }
+
+  // =========================
   // OPEN SETTINGS
   // =========================
 
@@ -130,6 +182,9 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await BackgroundAssistantService.startService();
 
+      await _voiceListenerService.initialize();
+      await _voiceListenerService.startListening();
+
       if (!mounted) {
         return;
       }
@@ -138,7 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _assistantRunning = true;
       });
 
-      _showSnackBar('تم تشغيل المساعد');
+      _showSnackBar('تم تشغيل المساعد والاستماع الصوتي');
     } catch (_) {
       _showSnackBar('تعذر تشغيل المساعد');
     } finally {
@@ -164,6 +219,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
+      await _voiceListenerService.stopListening();
       await BackgroundAssistantService.stopService();
 
       if (!mounted) {
@@ -449,7 +505,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 14),
                 Text(
                   _assistantRunning
-                      ? 'المساعد يعمل في الخلفية وجاهز للاستماع'
+                      ? 'المساعد يعمل في الخلفية والاستماع نشط داخل التطبيق'
                       : 'اضغط لتشغيل المساعد وبدء الاستماع',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
