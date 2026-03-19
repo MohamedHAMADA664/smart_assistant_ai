@@ -58,11 +58,11 @@
         <!-- FOREGROUND SERVICE -->
         <!-- ============================= -->
         <service
-            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
-            android:description="@string/app_name"
-            android:exported="false"
-            android:foregroundServiceType="microphone" />
-
+            <service
+                android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+                android:description="Smart Assistant AI"
+                android:exported="false"
+                android:foregroundServiceType="microphone" />
         <!-- ============================= -->
         <!-- CALL RECEIVER -->
         <!-- ============================= -->
