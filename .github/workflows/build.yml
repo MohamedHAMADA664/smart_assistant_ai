@@ -1,55 +1,33 @@
-name: smart_assistant_ai
-description: Smart Voice Assistant App
-publish_to: 'none'
+name: Android Build
 
-version: 1.0.0+1
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
 
-environment:
-  sdk: ">=3.0.0 <4.0.0"
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-dependencies:
-  flutter:
-    sdk: flutter
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  cupertino_icons: ^1.0.6
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
 
-  # Voice
-  speech_to_text: ^6.6.0
-  flutter_tts: ^3.8.5
-  logger: ^2.0.2
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.24.5
 
-  # Background
-  flutter_foreground_task: ^6.2.0
+      - name: Flutter pub get
+        run: flutter pub get
 
-  # Notifications
-  notification_listener_service: ^0.0.3
-
-  # Apps / Intents / System
-  device_apps: ^2.2.0
-  android_intent_plus: ^4.0.3
-  volume_controller: ^2.0.7
-  url_launcher: ^6.3.0
-
-  # Camera
-  camera: ^0.10.5+9
-
-  # Calls
-  phone_state: ^1.0.3
-
-  # Contacts
-  flutter_contacts: ^1.1.7
-
-  # Permissions
-  permission_handler: ^11.3.0
-
-  # Storage
-  shared_preferences: ^2.2.3
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-
-  flutter_lints: ^3.0.2
-
-flutter:
-  uses-material-design: true
+      - name: Build debug APK
+        run: flutter build apk --debug
