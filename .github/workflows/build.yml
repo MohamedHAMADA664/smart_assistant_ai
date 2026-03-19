@@ -39,6 +39,7 @@ jobs:
         run: |
           DEVICE_APPS_FILE="$HOME/.pub-cache/hosted/pub.dev/device_apps-2.2.0/android/build.gradle"
           NOTIFICATION_FILE="$HOME/.pub-cache/hosted/pub.dev/notification_listener_service-0.0.3/android/build.gradle"
+          PHONE_STATE_FILE="$HOME/.pub-cache/hosted/pub.dev/phone_state-1.0.4/android/build.gradle"
 
           if [ -f "$DEVICE_APPS_FILE" ]; then
             grep -q "namespace" "$DEVICE_APPS_FILE" || sed -i "/android {/a\    namespace 'fr.g123k.deviceapps'" "$DEVICE_APPS_FILE"
@@ -53,6 +54,14 @@ jobs:
             echo "Patched notification_listener_service build.gradle"
           else
             echo "notification_listener_service build.gradle not found"
+            exit 1
+          fi
+
+          if [ -f "$PHONE_STATE_FILE" ]; then
+            grep -q "namespace" "$PHONE_STATE_FILE" || sed -i "/android {/a\    namespace 'com.dooboolab.phone_state'" "$PHONE_STATE_FILE"
+            echo "Patched phone_state build.gradle"
+          else
+            echo "phone_state build.gradle not found"
             exit 1
           fi
 
