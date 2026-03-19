@@ -1,17 +1,25 @@
 import '../models/app_task_model.dart';
 import 'app_action_registry_service.dart';
 import 'app_control_service.dart';
+import 'online_ai_service.dart';
+import 'openai_gateway.dart';
 
 class AppTaskPlannerService {
   AppTaskPlannerService({
     AppControlService? appControlService,
     AppActionRegistryService? appActionRegistryService,
+    OnlineAiService? onlineAiService,
   })  : _appControlService = appControlService ?? AppControlService(),
         _appActionRegistryService =
-            appActionRegistryService ?? AppActionRegistryService();
+            appActionRegistryService ?? AppActionRegistryService(),
+        _onlineAiService = onlineAiService ??
+            OnlineAiService(
+              gateway: OpenAiGateway(),
+            );
 
   final AppControlService _appControlService;
   final AppActionRegistryService _appActionRegistryService;
+  final OnlineAiService _onlineAiService;
 
   Future<AppTaskPlanResult> planFromText(String rawText) async {
     final normalizedText = _normalize(rawText);
@@ -23,6 +31,29 @@ class AppTaskPlannerService {
       );
     }
 
+    final localPlan = await _planLocally(rawText, normalizedText);
+
+    if (localPlan.isReady && localPlan.task != null) {
+      return localPlan;
+    }
+
+    if (!_shouldAskOnlineAi(localPlan)) {
+      return localPlan;
+    }
+
+    final aiPlan = await _tryPlanWithOnlineAi(
+      rawText: rawText,
+      normalizedText: normalizedText,
+      fallbackPlan: localPlan,
+    );
+
+    return aiPlan ?? localPlan;
+  }
+
+  Future<AppTaskPlanResult> _planLocally(
+    String rawText,
+    String normalizedText,
+  ) async {
     final taskType = _detectTaskType(normalizedText);
     final targetAppName = _extractTargetAppName(normalizedText, taskType);
     final contactName = _extractContactName(normalizedText, taskType);
@@ -136,6 +167,228 @@ class AppTaskPlannerService {
       task: finalTask,
       resolvedApp: resolvedApp,
     );
+  }
+
+  Future<AppTaskPlanResult?> _tryPlanWithOnlineAi({
+    required String rawText,
+    required String normalizedText,
+    required AppTaskPlanResult fallbackPlan,
+  }) async {
+    final canUseOnlineAi = await _onlineAiService.shouldUseOnlineAi(
+          normalizedText,
+        ) ||
+        _looksLikeCommandForAiRescue(normalizedText);
+
+    if (!canUseOnlineAi) {
+      return null;
+    }
+
+    final suggestion = await _onlineAiService.suggestCommandExecution(
+      rawText,
+    );
+
+    if (!suggestion.isSuccess) {
+      return null;
+    }
+
+    final mappedTaskType = _mapAiIntentToTaskType(suggestion.intent);
+
+    if (mappedTaskType == null) {
+      if (suggestion.intent == OnlineAiSuggestedIntent.generalAnswer) {
+        return AppTaskPlanResult(
+          status: AppTaskPlanStatus.redirectToOnlineAi,
+          originalText: rawText,
+          reason: suggestion.answer ?? 'تم تحويل الطلب إلى رد ذكي عبر الإنترنت',
+        );
+      }
+
+      return null;
+    }
+
+    final targetAppName = _normalizeOptionalText(suggestion.appName);
+    final contactName = _normalizeOptionalText(suggestion.contactName);
+    final messageText = _normalizeOptionalText(suggestion.messageText);
+    final searchQuery = _normalizeOptionalText(suggestion.searchQuery);
+    final storeAppName = _normalizeOptionalText(suggestion.storeAppName);
+    final serverName = _normalizeOptionalText(suggestion.serverName);
+
+    final needsMoreDetails = _needsMoreDetails(
+      taskType: mappedTaskType,
+      targetAppName: targetAppName,
+      contactName: contactName,
+      messageText: messageText,
+      searchQuery: searchQuery,
+      storeAppName: storeAppName,
+    );
+
+    if (needsMoreDetails != null) {
+      return AppTaskPlanResult(
+        status: AppTaskPlanStatus.needsMoreDetails,
+        originalText: rawText,
+        reason: needsMoreDetails,
+        suggestedAppName:
+            targetAppName ?? fallbackPlan.suggestedAppName ?? fallbackPlan.task?.targetAppName,
+      );
+    }
+
+    ResolvedApp? resolvedApp;
+    if (_taskNeedsApp(mappedTaskType) &&
+        targetAppName != null &&
+        targetAppName.isNotEmpty) {
+      resolvedApp = await _appControlService.resolveApp(targetAppName);
+    }
+
+    if (_taskNeedsApp(mappedTaskType) &&
+        (targetAppName == null || targetAppName.isEmpty)) {
+      return AppTaskPlanResult(
+        status: AppTaskPlanStatus.missingTargetApp,
+        originalText: rawText,
+        reason: 'الذكاء عبر الإنترنت فهم نوع الطلب لكنه يحتاج اسم التطبيق',
+      );
+    }
+
+    if (_taskNeedsApp(mappedTaskType) && resolvedApp == null) {
+      return AppTaskPlanResult(
+        status: AppTaskPlanStatus.appNotFound,
+        originalText: rawText,
+        reason: 'الذكاء عبر الإنترنت فهم الطلب لكن التطبيق غير موجود على الجهاز',
+        suggestedAppName: targetAppName,
+      );
+    }
+
+    final task = AppTaskModel(
+      taskType: mappedTaskType,
+      targetAppName: resolvedApp?.displayName ?? targetAppName,
+      targetPackageName: resolvedApp?.packageName,
+      contactName: contactName,
+      messageText: messageText,
+      searchQuery: searchQuery,
+      storeAppName: storeAppName,
+      serverName: serverName,
+      requiresConfirmation: suggestion.requiresConfirmation,
+      requiresInternet: true,
+      requiresAutomation: false,
+    );
+
+    if (resolvedApp != null) {
+      final supportsTask = _appActionRegistryService.supportsTask(
+        packageName: resolvedApp.packageName,
+        taskType: mappedTaskType,
+      );
+
+      if (!supportsTask) {
+        return AppTaskPlanResult(
+          status: AppTaskPlanStatus.unsupportedForApp,
+          originalText: rawText,
+          task: task,
+          resolvedApp: resolvedApp,
+          reason:
+              suggestion.notes ??
+                  'الذكاء عبر الإنترنت فهم الطلب لكن المهمة غير مدعومة لهذا التطبيق',
+        );
+      }
+
+      final requiresConfirmation =
+          _appActionRegistryService.taskRequiresConfirmation(
+        packageName: resolvedApp.packageName,
+        taskType: mappedTaskType,
+      );
+
+      final requiresInternet = _appActionRegistryService.taskRequiresInternet(
+        packageName: resolvedApp.packageName,
+        taskType: mappedTaskType,
+      );
+
+      final requiresAutomation =
+          _appActionRegistryService.taskRequiresAutomation(
+        packageName: resolvedApp.packageName,
+        taskType: mappedTaskType,
+      );
+
+      return AppTaskPlanResult(
+        status: AppTaskPlanStatus.ready,
+        originalText: rawText,
+        resolvedApp: resolvedApp,
+        task: task.copyWith(
+          requiresConfirmation:
+              suggestion.requiresConfirmation || requiresConfirmation,
+          requiresInternet: requiresInternet || task.requiresInternet,
+          requiresAutomation: requiresAutomation,
+        ),
+      );
+    }
+
+    return AppTaskPlanResult(
+      status: mappedTaskType == AppTaskType.unknown
+          ? AppTaskPlanStatus.unknownTask
+          : AppTaskPlanStatus.ready,
+      originalText: rawText,
+      task: task,
+      reason: suggestion.notes,
+    );
+  }
+
+  bool _shouldAskOnlineAi(AppTaskPlanResult localPlan) {
+    return localPlan.status == AppTaskPlanStatus.unknownTask ||
+        localPlan.status == AppTaskPlanStatus.appNotFound ||
+        localPlan.status == AppTaskPlanStatus.unsupportedForApp ||
+        localPlan.status == AppTaskPlanStatus.needsMoreDetails ||
+        localPlan.status == AppTaskPlanStatus.missingTargetApp;
+  }
+
+  bool _looksLikeCommandForAiRescue(String text) {
+    return _containsAny(
+      text,
+      const [
+        'افتح',
+        'شغل',
+        'ابعت',
+        'ابعث',
+        'اتصل',
+        'دور',
+        'ابحث',
+        'نزل',
+        'ثبت',
+        'روح',
+        'ودي',
+        'search',
+        'open',
+        'launch',
+        'send',
+        'call',
+        'install',
+      ],
+    );
+  }
+
+  AppTaskType? _mapAiIntentToTaskType(OnlineAiSuggestedIntent intent) {
+    switch (intent) {
+      case OnlineAiSuggestedIntent.openApp:
+        return AppTaskType.openApp;
+      case OnlineAiSuggestedIntent.openChat:
+        return AppTaskType.openChat;
+      case OnlineAiSuggestedIntent.prepareMessage:
+        return AppTaskType.prepareMessage;
+      case OnlineAiSuggestedIntent.searchInApp:
+        return AppTaskType.searchInApp;
+      case OnlineAiSuggestedIntent.searchStore:
+        return AppTaskType.searchStore;
+      case OnlineAiSuggestedIntent.openStoreListing:
+        return AppTaskType.openStoreListing;
+      case OnlineAiSuggestedIntent.installApp:
+        return AppTaskType.installApp;
+      case OnlineAiSuggestedIntent.connectVpn:
+        return AppTaskType.connectVpn;
+      case OnlineAiSuggestedIntent.disconnectVpn:
+        return AppTaskType.disconnectVpn;
+      case OnlineAiSuggestedIntent.openSettings:
+        return AppTaskType.openSettingsInApp;
+      case OnlineAiSuggestedIntent.webSearch:
+        return AppTaskType.searchInApp;
+      case OnlineAiSuggestedIntent.generalAnswer:
+      case OnlineAiSuggestedIntent.unsupported:
+        return null;
+    }
   }
 
   AppTaskType _detectTaskType(String text) {
@@ -648,6 +901,15 @@ class AppTaskPlannerService {
     return result.isEmpty ? null : result;
   }
 
+  String? _normalizeOptionalText(String? value) {
+    if (value == null) {
+      return null;
+    }
+
+    final normalized = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+    return normalized.isEmpty ? null : normalized;
+  }
+
   String _normalize(String text) {
     return text
         .toLowerCase()
@@ -674,8 +936,13 @@ class AppTaskPlanResult {
   final String? reason;
   final String? suggestedAppName;
 
-  bool get isReady => status == AppTaskPlanStatus.ready;
-  bool get hasError => status != AppTaskPlanStatus.ready;
+  bool get isReady =>
+      status == AppTaskPlanStatus.ready ||
+      status == AppTaskPlanStatus.redirectToOnlineAi;
+
+  bool get hasError =>
+      status != AppTaskPlanStatus.ready &&
+      status != AppTaskPlanStatus.redirectToOnlineAi;
 }
 
 enum AppTaskPlanStatus {
@@ -686,4 +953,5 @@ enum AppTaskPlanStatus {
   appNotFound,
   unsupportedForApp,
   needsMoreDetails,
+  redirectToOnlineAi,
 }
