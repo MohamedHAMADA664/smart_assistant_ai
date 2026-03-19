@@ -89,6 +89,7 @@ class VoiceResponseService {
     }
 
     try {
+      await _applyCurrentSettings();
       await _tts.stop();
       await _tts.speak(normalizedText);
     } catch (_) {
@@ -139,7 +140,7 @@ class VoiceResponseService {
       await initialize();
     }
 
-    _currentSpeechRate = speechRate.clamp(0.1, 1.0);
+    _currentSpeechRate = speechRate.clamp(0.1, 1.0).toDouble();
     await _tts.setSpeechRate(_currentSpeechRate);
   }
 
@@ -156,9 +157,17 @@ class VoiceResponseService {
   // ================================
 
   Future<void> _loadProfileSettings() async {
-    final profile = await _assistantProfileService.loadProfile();
-    _currentLanguage = profile.voiceLanguage;
-    _currentSpeechRate = profile.speechRate;
+    try {
+      final profile = await _assistantProfileService.loadProfile();
+
+      final language = profile.voiceLanguage.trim();
+      _currentLanguage = language.isEmpty ? 'ar' : language;
+
+      _currentSpeechRate = profile.speechRate.clamp(0.1, 1.0).toDouble();
+    } catch (_) {
+      _currentLanguage = 'ar';
+      _currentSpeechRate = 0.5;
+    }
   }
 
   Future<void> _applyCurrentSettings() async {
