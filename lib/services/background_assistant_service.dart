@@ -36,6 +36,14 @@ class BackgroundAssistantService {
 
     await FlutterForegroundTask.stopService();
   }
+
+  // ===============================
+  // GET STATUS
+  // ===============================
+
+  static Future<bool> isServiceRunning() async {
+    return FlutterForegroundTask.isRunningService;
+  }
 }
 
 // =====================================
@@ -68,8 +76,7 @@ class AssistantTaskHandler extends TaskHandler {
     }
 
     try {
-      await _voiceListener.initialize();
-      await _voiceListener.startListening();
+      await _ensureVoiceListenerStarted();
       _started = true;
     } catch (_) {
       _started = false;
@@ -83,6 +90,12 @@ class AssistantTaskHandler extends TaskHandler {
   @override
   Future<void> onRepeatEvent(DateTime timestamp, SendPort? sendPort) async {
     try {
+      if (!_started) {
+        await _ensureVoiceListenerStarted();
+        _started = true;
+        return;
+      }
+
       if (!_voiceListener.isListening) {
         await _voiceListener.startListening();
       }
@@ -122,5 +135,17 @@ class AssistantTaskHandler extends TaskHandler {
   @override
   void onNotificationPressed() {
     FlutterForegroundTask.launchApp();
+  }
+
+  // ===============================
+  // INTERNAL HELPERS
+  // ===============================
+
+  Future<void> _ensureVoiceListenerStarted() async {
+    await _voiceListener.initialize();
+
+    if (!_voiceListener.isListening) {
+      await _voiceListener.startListening();
+    }
   }
 }
