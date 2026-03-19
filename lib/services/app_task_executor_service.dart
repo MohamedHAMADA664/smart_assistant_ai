@@ -87,19 +87,19 @@ class AppTaskExecutorService {
       );
     }
 
-    final opened = await _appControlService.openAppByName(appName);
+    final opened = await _tryOpenAppWithFallbacks(appName);
 
     if (!opened) {
       return AppTaskExecutionResult(
         status: AppTaskExecutionStatus.failed,
-        message: 'تعذر فتح التطبيق',
+        message: 'تعذر فتح التطبيق: $appName',
         task: task,
       );
     }
 
     return AppTaskExecutionResult(
       status: AppTaskExecutionStatus.success,
-      message: 'تم فتح التطبيق',
+      message: 'تم فتح التطبيق: $appName',
       task: task,
     );
   }
@@ -154,14 +154,29 @@ class AppTaskExecutorService {
 
     switch (packageName) {
       case 'com.google.android.youtube':
+      case 'com.google.android.apps.youtube.music':
         final launched = await _musicService.playYoutube(query);
         return AppTaskExecutionResult(
           status: launched
               ? AppTaskExecutionStatus.success
               : AppTaskExecutionStatus.failed,
           message: launched
-              ? 'تم فتح يوتيوب وتجهيز البحث'
+              ? 'تم فتح التطبيق وتجهيز البحث: $query'
               : 'تعذر تنفيذ البحث في يوتيوب',
+          task: task,
+        );
+
+      case 'com.google.android.apps.maps':
+        final launched = await _systemControlService.webSearch(
+          'خرائط $query',
+        );
+        return AppTaskExecutionResult(
+          status: launched
+              ? AppTaskExecutionStatus.partialSuccess
+              : AppTaskExecutionStatus.failed,
+          message: launched
+              ? 'تم فتح بحث مرتبط بالخرائط: $query'
+              : 'تعذر تنفيذ البحث المرتبط بالخرائط',
           task: task,
         );
 
@@ -172,7 +187,7 @@ class AppTaskExecutorService {
           status: launched
               ? AppTaskExecutionStatus.success
               : AppTaskExecutionStatus.failed,
-          message: launched ? 'تم فتح البحث' : 'تعذر تنفيذ البحث',
+          message: launched ? 'تم فتح البحث: $query' : 'تعذر تنفيذ البحث',
           task: task,
         );
 
@@ -221,7 +236,9 @@ class AppTaskExecutorService {
           ? AppTaskExecutionStatus.success
           : AppTaskExecutionStatus.failed,
       message: opened
-          ? 'تم فتح المتجر على التطبيق المطلوب'
+          ? task.taskType == AppTaskType.installApp
+              ? 'تم فتح صفحة التطبيق لتثبيته'
+              : 'تم فتح المتجر على التطبيق المطلوب'
           : 'تعذر فتح المتجر على التطبيق المطلوب',
       task: task,
     );
@@ -249,8 +266,9 @@ class AppTaskExecutorService {
       status: opened
           ? AppTaskExecutionStatus.success
           : AppTaskExecutionStatus.failed,
-      message:
-          opened ? 'تم فتح البحث داخل المتجر' : 'تعذر فتح البحث داخل المتجر',
+      message: opened
+          ? 'تم فتح البحث داخل المتجر: $appName'
+          : 'تعذر فتح البحث داخل المتجر',
       task: task,
     );
   }
@@ -271,12 +289,12 @@ class AppTaskExecutorService {
       );
     }
 
-    final opened = await _appControlService.openAppByName(appName);
+    final opened = await _tryOpenAppWithFallbacks(appName);
 
     if (!opened) {
       return AppTaskExecutionResult(
         status: AppTaskExecutionStatus.failed,
-        message: 'تعذر فتح تطبيق الـ VPN',
+        message: 'تعذر فتح تطبيق الـ VPN: $appName',
         task: task,
       );
     }
@@ -284,10 +302,37 @@ class AppTaskExecutorService {
     return AppTaskExecutionResult(
       status: AppTaskExecutionStatus.partialSuccess,
       message: task.taskType == AppTaskType.connectVpn
-          ? 'تم فتح تطبيق الـ VPN، والاتصال التلقائي يحتاج طبقة Automation لاحقة'
-          : 'تم فتح تطبيق الـ VPN، والفصل التلقائي يحتاج طبقة Automation لاحقة',
+          ? 'تم فتح تطبيق الـ VPN: $appName، والاتصال التلقائي يحتاج طبقة Automation لاحقة'
+          : 'تم فتح تطبيق الـ VPN: $appName، والفصل التلقائي يحتاج طبقة Automation لاحقة',
       task: task,
     );
+  }
+
+  // ================================
+  // INTERNAL HELPERS
+  // ================================
+
+  Future<bool> _tryOpenAppWithFallbacks(String appName) async {
+    final directOpen = await _appControlService.openAppByName(appName);
+    if (directOpen) {
+      return true;
+    }
+
+    final resolved = await _appControlService.resolveApp(appName);
+    if (resolved != null) {
+      final openedResolved = await _appControlService.openResolvedApp(resolved);
+      if (openedResolved) {
+        return true;
+      }
+    }
+
+    final matches = await _appControlService.searchApps(appName);
+    if (matches.isNotEmpty) {
+      final firstMatch = matches.first;
+      return _appControlService.openResolvedApp(firstMatch);
+    }
+
+    return false;
   }
 }
 
