@@ -51,6 +51,22 @@ class SystemControlService {
   }
 
   // ================================
+  // NOTIFICATION SETTINGS
+  // ================================
+
+  Future<bool> openNotificationSettings() {
+    return _launchAndroidSettings('android.settings.NOTIFICATION_SETTINGS');
+  }
+
+  // ================================
+  // APPLICATION DETAILS SETTINGS
+  // ================================
+
+  Future<bool> openAppDetailsSettings() {
+    return _launchAndroidSettings('android.settings.APPLICATION_DETAILS_SETTINGS');
+  }
+
+  // ================================
   // WEB SEARCH
   // ================================
 
@@ -84,13 +100,13 @@ class SystemControlService {
 
   Future<void> increaseVolume() async {
     final currentVolume = await _volumeController.getVolume();
-    final newVolume = (currentVolume + 0.1).clamp(0.0, 1.0);
+    final newVolume = (currentVolume + 0.1).clamp(0.0, 1.0).toDouble();
     _volumeController.setVolume(newVolume);
   }
 
   Future<void> decreaseVolume() async {
     final currentVolume = await _volumeController.getVolume();
-    final newVolume = (currentVolume - 0.1).clamp(0.0, 1.0);
+    final newVolume = (currentVolume - 0.1).clamp(0.0, 1.0).toDouble();
     _volumeController.setVolume(newVolume);
   }
 
