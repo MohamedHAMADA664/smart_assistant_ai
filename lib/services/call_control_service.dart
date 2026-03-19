@@ -18,7 +18,7 @@ class CallControlService {
   Future<bool> acceptCall() async {
     return _invokeCallAction(
       method: 'acceptCall',
-      successMessage: 'Call answered',
+      successMessage: 'Call answered successfully',
       errorMessage: 'Error answering call',
     );
   }
@@ -30,7 +30,7 @@ class CallControlService {
   Future<bool> rejectCall() async {
     return _invokeCallAction(
       method: 'rejectCall',
-      successMessage: 'Call rejected',
+      successMessage: 'Call rejected successfully',
       errorMessage: 'Error rejecting call',
     );
   }
@@ -45,9 +45,17 @@ class CallControlService {
     required String errorMessage,
   }) async {
     try {
-      await _channel.invokeMethod(method);
-      _logger.i(successMessage);
-      return true;
+      final result = await _channel.invokeMethod<bool>(method);
+
+      if (result == true) {
+        _logger.i(successMessage);
+        return true;
+      }
+
+      _logger.w(
+        '$errorMessage: native side returned ${result ?? 'null'}',
+      );
+      return false;
     } on PlatformException catch (e, stackTrace) {
       _logger.e(
         errorMessage,
