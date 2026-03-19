@@ -1,51 +1,71 @@
-name: Build Flutter APK
+name: Build and Deploy Flutter Web
 
 on:
   push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
+    branches:
+      - main
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: Build APK (Release)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: "temurin"
+          distribution: temurin
           java-version: "17"
-          cache: "gradle"
 
-      - name: Set up Flutter (stable)
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: "stable"
+          channel: stable
           cache: true
 
-      - name: Flutter doctor
-        run: flutter doctor -v
+      - name: Enable Flutter web
+        run: flutter config --enable-web
 
-      - name: Get dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      # لو التحليل كان بيكسر البناء، خليه اختياري بدل ما يفشل الـ job
-      - name: Analyze (non-blocking)
-        run: flutter analyze || true
+      - name: Analyze project
+        run: flutter analyze
 
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Run tests
+        run: flutter test
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - name: Build web app
+        run: flutter build web --release --base-href /${{ github.event.repository.name }}/
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload web build
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: app-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/web
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
