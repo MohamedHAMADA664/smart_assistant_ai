@@ -67,7 +67,8 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew app:assembleRelease --stacktrace
+          ./gradlew --version
+          ./gradlew app:assembleRelease --stacktrace --no-daemon
 
       - name: Upload APK artifact
         if: success()
