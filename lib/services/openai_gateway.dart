@@ -26,91 +26,135 @@ class OpenAiGateway implements OnlineAiGateway {
     final normalizedPrompt = request.prompt.trim();
 
     if (normalizedPrompt.isEmpty) {
-      throw Exception('Prompt is empty.');
+      throw Exception('OpenAI prompt is empty.');
     }
 
-    if (apiKey.trim().isEmpty) {
+    final normalizedApiKey = apiKey.trim();
+    final normalizedModel = model.trim();
+    final normalizedBaseUrl = _normalizeBaseUrl(baseUrl);
+
+    if (normalizedApiKey.isEmpty) {
       throw Exception('OPENAI_API_KEY is missing.');
     }
 
-    if (model.trim().isEmpty) {
+    if (normalizedModel.isEmpty) {
       throw Exception('OPENAI_MODEL is missing.');
     }
 
-    if (baseUrl.trim().isEmpty) {
+    if (normalizedBaseUrl.isEmpty) {
       throw Exception('OPENAI_BASE_URL is missing.');
     }
 
-    final normalizedBaseUrl = _normalizeBaseUrl(baseUrl);
     final url = Uri.parse('$normalizedBaseUrl/chat/completions');
 
-    final response = await _client
-        .post(
-          url,
-          headers: {
-            'Authorization': 'Bearer $apiKey',
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({
-            'model': model,
-            'messages': [
-              {
-                'role': 'system',
-                'content': _buildSystemPrompt(
-                  context: request.context,
-                ),
-              },
-              {
-                'role': 'user',
-                'content': normalizedPrompt,
-              },
-            ],
-            'temperature': 0.3,
-          }),
-        )
-        .timeout(_timeout);
+    final payload = <String, dynamic>{
+      'model': normalizedModel,
+      'messages': [
+        {
+          'role': 'system',
+          'content': _buildSystemPrompt(
+            mode: request.mode,
+            context: request.context,
+          ),
+        },
+        {
+          'role': 'user',
+          'content': normalizedPrompt,
+        },
+      ],
+      'temperature': request.mode == OnlineAiRequestMode.commandPlanning
+          ? 0.1
+          : 0.3,
+    };
+
+    http.Response response;
+
+    try {
+      response = await _client
+          .post(
+            url,
+            headers: {
+              'Authorization': 'Bearer $normalizedApiKey',
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode(payload),
+          )
+          .timeout(_timeout);
+    } on TimeoutException {
+      throw TimeoutException('OpenAI request timed out.');
+    } catch (e) {
+      throw Exception('Failed to connect to OpenAI: $e');
+    }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(_extractErrorMessage(response));
     }
 
-    final dynamic data = jsonDecode(response.body);
+    final dynamic data = _safeDecodeJson(response.body);
 
-    final String text = _extractAssistantText(data);
+    if (data is! Map<String, dynamic>) {
+      throw Exception('OpenAI returned an invalid JSON response.');
+    }
 
-    if (text.trim().isEmpty) {
+    final String text = _extractAssistantText(data).trim();
+
+    if (text.isEmpty) {
       throw Exception('OpenAI returned an empty response.');
     }
 
+    final responseModel = _extractResponseModel(data) ?? normalizedModel;
+
     return OnlineAiGatewayResponse(
-      text: text.trim(),
+      text: text,
       source: 'openai',
-      model: model,
+      model: responseModel,
     );
   }
 
   String _normalizeBaseUrl(String value) {
     final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+
     if (trimmed.endsWith('/')) {
       return trimmed.substring(0, trimmed.length - 1);
     }
+
     return trimmed;
   }
 
-  String _buildSystemPrompt({String? context}) {
-    final buffer = StringBuffer()
-      ..writeln(
-        'أنت مساعد ذكي داخل تطبيق موبايل عربي.',
-      )
-      ..writeln(
-        'مهمتك فهم أوامر المستخدم وتحويلها إلى رد واضح ومفيد ومباشر.',
-      )
-      ..writeln(
-        'لو كان الطلب عمليًا متعلقًا بتطبيقات أو الجهاز، فافهم نية المستخدم بدقة.',
-      )
-      ..writeln(
-        'لا تكتب مقدمات طويلة، واجعل الرد مختصرًا وواضحًا.',
+  String _buildSystemPrompt({
+    required OnlineAiRequestMode mode,
+    String? context,
+  }) {
+    final buffer = StringBuffer();
+
+    if (mode == OnlineAiRequestMode.commandPlanning) {
+      buffer.writeln(
+        'أنت مساعد تخطيط أوامر داخل تطبيق موبايل عربي.',
       );
+      buffer.writeln(
+        'مهمتك تحويل طلب المستخدم إلى JSON دقيق فقط بدون أي شرح إضافي.',
+      );
+      buffer.writeln(
+        'لا تضف markdown ولا تعليقات ولا مقدمة ولا خاتمة.',
+      );
+      buffer.writeln(
+        'إذا لم تفهم الأمر بدقة فأعد intent = unsupported.',
+      );
+    } else {
+      buffer.writeln(
+        'أنت مساعد ذكي داخل تطبيق موبايل عربي.',
+      );
+      buffer.writeln(
+        'أجب بإجابة واضحة ومفيدة ومباشرة وبأسلوب مختصر.',
+      );
+      buffer.writeln(
+        'لا تطل بدون داعٍ، وركز على تلبية طلب المستخدم مباشرة.',
+      );
+    }
 
     final normalizedContext = context?.trim();
     if (normalizedContext != null && normalizedContext.isNotEmpty) {
@@ -123,27 +167,40 @@ class OpenAiGateway implements OnlineAiGateway {
     return buffer.toString().trim();
   }
 
-  String _extractAssistantText(dynamic data) {
-    if (data is! Map<String, dynamic>) {
-      return '';
+  dynamic _safeDecodeJson(String rawBody) {
+    try {
+      return jsonDecode(rawBody);
+    } catch (e) {
+      throw Exception('Failed to parse OpenAI JSON response: $e');
     }
+  }
 
+  String _extractAssistantText(Map<String, dynamic> data) {
     final choices = data['choices'];
+
     if (choices is! List || choices.isEmpty) {
       return '';
     }
 
     final firstChoice = choices.first;
-    if (firstChoice is! Map<String, dynamic>) {
+    if (firstChoice is! Map) {
       return '';
     }
 
-    final message = firstChoice['message'];
-    if (message is! Map<String, dynamic>) {
+    final normalizedChoice = firstChoice.map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+
+    final message = normalizedChoice['message'];
+    if (message is! Map) {
       return '';
     }
 
-    final content = message['content'];
+    final normalizedMessage = message.map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+
+    final content = normalizedMessage['content'];
 
     if (content is String) {
       return content;
@@ -153,15 +210,20 @@ class OpenAiGateway implements OnlineAiGateway {
       final buffer = StringBuffer();
 
       for (final item in content) {
-        if (item is Map<String, dynamic>) {
-          final type = item['type'];
+        if (item is Map) {
+          final normalizedItem = item.map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
+
+          final type = normalizedItem['type'];
           if (type == 'text') {
-            final text = item['text'];
-            if (text is String && text.trim().isNotEmpty) {
+            final textValue = normalizedItem['text'];
+
+            if (textValue is String && textValue.trim().isNotEmpty) {
               if (buffer.isNotEmpty) {
                 buffer.writeln();
               }
-              buffer.write(text.trim());
+              buffer.write(textValue.trim());
             }
           }
         }
@@ -173,6 +235,14 @@ class OpenAiGateway implements OnlineAiGateway {
     return '';
   }
 
+  String? _extractResponseModel(Map<String, dynamic> data) {
+    final value = data['model'];
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+    return null;
+  }
+
   String _extractErrorMessage(http.Response response) {
     try {
       final dynamic data = jsonDecode(response.body);
@@ -182,13 +252,30 @@ class OpenAiGateway implements OnlineAiGateway {
 
         if (error is Map<String, dynamic>) {
           final message = error['message'];
+          final type = error['type'];
+          final code = error['code'];
+
+          final parts = <String>[];
+
           if (message is String && message.trim().isNotEmpty) {
-            return 'OpenAI error ${response.statusCode}: ${message.trim()}';
+            parts.add(message.trim());
+          }
+
+          if (type is String && type.trim().isNotEmpty) {
+            parts.add('type=${type.trim()}');
+          }
+
+          if (code is String && code.trim().isNotEmpty) {
+            parts.add('code=${code.trim()}');
+          }
+
+          if (parts.isNotEmpty) {
+            return 'OpenAI error ${response.statusCode}: ${parts.join(' | ')}';
           }
         }
       }
     } catch (_) {
-      // Ignore JSON parsing issues and fall back to raw body.
+      // تجاهل وفكك للـ fallback
     }
 
     final rawBody = response.body.trim();
