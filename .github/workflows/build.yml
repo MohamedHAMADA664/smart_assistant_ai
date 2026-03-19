@@ -37,22 +37,83 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Patch missing namespaces in Android plugins
+      - name: Patch Android plugins (namespace + compileSdk)
         run: |
           python3 - <<'PY'
           import pathlib
           import re
 
           pub_cache = pathlib.Path.home() / ".pub-cache" / "hosted" / "pub.dev"
-          gradle_files = list(pub_cache.glob("*/android/build.gradle"))
 
-          for gradle_file in gradle_files:
+          groovy_gradles = list(pub_cache.glob("*/android/build.gradle"))
+          kts_gradles = list(pub_cache.glob("*/android/build.gradle.kts"))
+
+          def patch_namespace_groovy(text, namespace_value):
+              if re.search(r'namespace\s+["\']', text):
+                  return text
+              if 'android {' in text:
+                  return re.sub(
+                      r'android\s*\{',
+                      f'android {{\n    namespace "{namespace_value}"',
+                      text,
+                      count=1,
+                  )
+              return text
+
+          def patch_namespace_kts(text, namespace_value):
+              if re.search(r'namespace\s*=\s*["\']', text):
+                  return text
+              if 'android {' in text:
+                  return re.sub(
+                      r'android\s*\{',
+                      f'android {{\n    namespace = "{namespace_value}"',
+                      text,
+                      count=1,
+                  )
+              return text
+
+          def patch_compile_sdk_groovy(text):
+              if re.search(r'compileSdkVersion\s+\d+', text):
+                  text = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 35', text)
+              elif re.search(r'compileSdk\s+\d+', text):
+                  text = re.sub(r'compileSdk\s+\d+', 'compileSdk 35', text)
+              elif 'android {' in text:
+                  text = re.sub(
+                      r'android\s*\{',
+                      'android {\n    compileSdkVersion 35',
+                      text,
+                      count=1,
+                  )
+              return text
+
+          def patch_compile_sdk_kts(text):
+              if re.search(r'compileSdk\s*=\s*\d+', text):
+                  text = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 35', text)
+              elif 'android {' in text:
+                  text = re.sub(
+                      r'android\s*\{',
+                      'android {\n    compileSdk = 35',
+                      text,
+                      count=1,
+                  )
+              return text
+
+          def patch_min_sdk_groovy(text):
+              if re.search(r'minSdkVersion\s+\d+', text):
+                  text = re.sub(r'minSdkVersion\s+\d+', 'minSdkVersion 23', text)
+              elif re.search(r'minSdk\s+\d+', text):
+                  text = re.sub(r'minSdk\s+\d+', 'minSdk 23', text)
+              return text
+
+          def patch_min_sdk_kts(text):
+              if re.search(r'minSdk\s*=\s*\d+', text):
+                  text = re.sub(r'minSdk\s*=\s*\d+', 'minSdk = 23', text)
+              return text
+
+          for gradle_file in groovy_gradles:
               text = gradle_file.read_text(encoding="utf-8", errors="ignore")
 
               if 'com.android.library' not in text and 'com.android.application' not in text:
-                  continue
-
-              if re.search(r'namespace\s+["\']', text):
                   continue
 
               manifest_file = gradle_file.parent / "src" / "main" / "AndroidManifest.xml"
@@ -68,13 +129,36 @@ jobs:
                   safe_name = gradle_file.parent.parent.name.split("-")[0].replace(".", "_").replace("-", "_")
                   namespace_value = f"patched.{safe_name}"
 
-              new_text = re.sub(
-                  r'android\s*\{',
-                  f'android {{\n    namespace "{namespace_value}"',
-                  text,
-                  count=1,
-              )
-              gradle_file.write_text(new_text, encoding="utf-8")
+              text = patch_namespace_groovy(text, namespace_value)
+              text = patch_compile_sdk_groovy(text)
+              text = patch_min_sdk_groovy(text)
+
+              gradle_file.write_text(text, encoding="utf-8")
+
+          for gradle_file in kts_gradles:
+              text = gradle_file.read_text(encoding="utf-8", errors="ignore")
+
+              if 'com.android.library' not in text and 'com.android.application' not in text:
+                  continue
+
+              manifest_file = gradle_file.parent / "src" / "main" / "AndroidManifest.xml"
+              namespace_value = None
+
+              if manifest_file.exists():
+                  manifest_text = manifest_file.read_text(encoding="utf-8", errors="ignore")
+                  match = re.search(r'package="([^"]+)"', manifest_text)
+                  if match:
+                      namespace_value = match.group(1)
+
+              if not namespace_value:
+                  safe_name = gradle_file.parent.parent.name.split("-")[0].replace(".", "_").replace("-", "_")
+                  namespace_value = f"patched.{safe_name}"
+
+              text = patch_namespace_kts(text, namespace_value)
+              text = patch_compile_sdk_kts(text)
+              text = patch_min_sdk_kts(text)
+
+              gradle_file.write_text(text, encoding="utf-8")
           PY
 
       - name: Flutter clean
@@ -82,12 +166,6 @@ jobs:
 
       - name: Analyze (non-blocking)
         run: flutter analyze || true
-
-      - name: Show Gradle version
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew --version
 
       - name: Build Release APK
         env:
