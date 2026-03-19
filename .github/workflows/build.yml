@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build APK (Debug)
+    name: Build APK (Release)
     runs-on: ubuntu-latest
 
     steps:
@@ -37,30 +37,57 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Patch device_apps namespace
+      - name: Patch missing namespaces in Android plugins
         run: |
           python3 - <<'PY'
           import pathlib
           import re
 
-          candidates = list(pathlib.Path.home().glob(".pub-cache/hosted/pub.dev/device_apps-*/android/build.gradle"))
-          if not candidates:
-              raise SystemExit("device_apps build.gradle not found in pub cache")
+          pub_cache = pathlib.Path.home() / ".pub-cache" / "hosted" / "pub.dev"
+          if not pub_cache.exists():
+              raise SystemExit("pub cache not found")
 
-          target = candidates[0]
-          text = target.read_text()
+          gradle_files = list(pub_cache.glob("*/android/build.gradle"))
+          patched = []
 
-          if 'namespace ' in text:
-              print("device_apps namespace already present")
-          else:
-              text = re.sub(
+          for gradle_file in gradle_files:
+              text = gradle_file.read_text(encoding="utf-8", errors="ignore")
+
+              if 'com.android.library' not in text and 'com.android.application' not in text:
+                  continue
+
+              if re.search(r'namespace\s+["\']', text):
+                  continue
+
+              manifest_file = gradle_file.parent / "src" / "main" / "AndroidManifest.xml"
+              namespace_value = None
+
+              if manifest_file.exists():
+                  manifest_text = manifest_file.read_text(encoding="utf-8", errors="ignore")
+                  match = re.search(r'package="([^"]+)"', manifest_text)
+                  if match:
+                      namespace_value = match.group(1)
+
+              if not namespace_value:
+                  safe_name = gradle_file.parent.parent.name.split("-")[0].replace(".", "_").replace("-", "_")
+                  namespace_value = f"patched.{safe_name}"
+
+              new_text, count = re.subn(
                   r'android\s*\{',
-                  'android {\n    namespace "fr.g123k.deviceapps"',
+                  f'android {{\n    namespace "{namespace_value}"',
                   text,
                   count=1,
               )
-              target.write_text(text)
-              print(f"Patched namespace in: {target}")
+
+              if count > 0:
+                  gradle_file.write_text(new_text, encoding="utf-8")
+                  patched.append((str(gradle_file), namespace_value))
+
+          print("Patched files:")
+          for path, namespace in patched:
+              print(f"{path} -> {namespace}")
+
+          print(f"Total patched: {len(patched)}")
           PY
 
       - name: Flutter clean
@@ -69,12 +96,12 @@ jobs:
       - name: Analyze (non-blocking)
         run: flutter analyze || true
 
-      - name: Build APK
-        run: flutter build apk --debug
+      - name: Build Release APK
+        run: flutter build apk --release
 
-      - name: Upload APK artifact
+      - name: Upload Release APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
