@@ -3,6 +3,8 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'screens/home_screen.dart';
 
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -12,7 +14,11 @@ Future<void> main() async {
 }
 
 Future<void> _initializeApp() async {
-  _initializeForegroundTask();
+  try {
+    _initializeForegroundTask();
+  } catch (_) {
+    // Keep app startup resilient even if foreground task init fails.
+  }
 }
 
 void _initializeForegroundTask() {
@@ -41,10 +47,16 @@ class SmartAssistantApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'Smart Assistant',
-      theme: ThemeData.dark(),
-      home: const HomeScreen(),
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xff050816),
+      ),
+      home: const Directionality(
+        textDirection: TextDirection.rtl,
+        child: HomeScreen(),
+      ),
     );
   }
 }
