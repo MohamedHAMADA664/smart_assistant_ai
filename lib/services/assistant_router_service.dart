@@ -202,7 +202,7 @@ class AssistantRouterService {
     return plan.status == AppTaskPlanStatus.appNotFound ||
         plan.status == AppTaskPlanStatus.unsupportedForApp ||
         plan.status == AppTaskPlanStatus.needsMoreDetails ||
-        (plan.reason != null && plan.reason!.trim().isNotEmpty);
+        plan.status == AppTaskPlanStatus.missingTargetApp;
   }
 
   // ================================
