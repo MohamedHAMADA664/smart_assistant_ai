@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build APK (Debug)
+    name: Build APKs
     runs-on: ubuntu-latest
 
     steps:
@@ -33,9 +33,6 @@ jobs:
 
       - name: Flutter doctor
         run: flutter doctor -v
-
-      - name: Show Flutter version
-        run: flutter --version
 
       - name: Get dependencies
         run: flutter pub get
@@ -66,25 +63,28 @@ jobs:
               print(f"Patched namespace in: {target}")
           PY
 
-      - name: Show Android build files
-        run: |
-          echo "===== android/build.gradle ====="
-          cat android/build.gradle
-          echo
-          echo "===== android/settings.gradle ====="
-          cat android/settings.gradle
-          echo
-          echo "===== android/app/build.gradle ====="
-          cat android/app/build.gradle
-          echo
-          echo "===== android/gradle.properties ====="
-          cat android/gradle.properties
-          echo
-          echo "===== android/gradle/wrapper/gradle-wrapper.properties ====="
-          cat android/gradle/wrapper/gradle-wrapper.properties
-
       - name: Flutter clean
         run: flutter clean
 
       - name: Analyze (non-blocking)
-        run:
+        run: flutter analyze || true
+
+      - name: Build Debug APK
+        run: flutter build apk --debug
+
+      - name: Build Release APK
+        run: flutter build apk --release
+
+      - name: Upload Debug APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Upload Release APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
