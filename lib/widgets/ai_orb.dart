@@ -45,7 +45,7 @@ class _AIOrbState extends State<AIOrb> with SingleTickerProviderStateMixin {
             height: 64,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.14),
+              color: Colors.white.withOpacity(0.14),
             ),
           ),
         ),
@@ -59,7 +59,7 @@ class _AIOrbState extends State<AIOrb> with SingleTickerProviderStateMixin {
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: Colors.blueAccent.withValues(alpha: 0.7),
+                color: Colors.blueAccent.withOpacity(0.7),
                 blurRadius: glowBlur,
                 spreadRadius: glowSpread,
               ),
