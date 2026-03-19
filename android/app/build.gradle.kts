@@ -20,7 +20,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.smart_assistant_ai"
-        minSdk = flutter.minSdkVersion
+        minSdk = 23
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
