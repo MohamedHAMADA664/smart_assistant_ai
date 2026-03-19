@@ -45,30 +45,31 @@ class AssistantRouterService {
       );
     }
 
-    final shouldUseOnlineAi =
-        await _onlineAiService.shouldUseOnlineAi(normalizedText);
-
-    if (shouldUseOnlineAi) {
-      return AssistantRouteResult(
-        routeType: AssistantRouteType.onlineAi,
-        message: 'تم توجيه الطلب إلى الذكاء عبر الإنترنت',
-        originalText: rawText,
-      );
-    }
-
-    if (appTaskPlan.status == AppTaskPlanStatus.appNotFound) {
+    if (_isRecoverableAppTaskPlan(appTaskPlan)) {
       return AssistantRouteResult(
         routeType: AssistantRouteType.appTask,
-        message: appTaskPlan.reason ?? 'تعذر العثور على التطبيق المطلوب',
+        message: appTaskPlan.reason ?? 'تم التعرف على الطلب كتفاعل مع التطبيقات',
         originalText: rawText,
         appTaskPlanResult: appTaskPlan,
       );
     }
 
-    if (appTaskPlan.status == AppTaskPlanStatus.unsupportedForApp) {
+    final shouldUseOnlineAi =
+        await _onlineAiService.shouldUseOnlineAi(normalizedText);
+
+    if (shouldUseOnlineAi || _looksLikeKnowledgeQuestion(normalizedText)) {
+      return AssistantRouteResult(
+        routeType: AssistantRouteType.onlineAi,
+        message: 'تم توجيه الطلب إلى الذكاء عبر الإنترنت',
+        originalText: rawText,
+        appTaskPlanResult: appTaskPlan,
+      );
+    }
+
+    if (_looksLikeDirectDeviceAction(normalizedText)) {
       return AssistantRouteResult(
         routeType: AssistantRouteType.appTask,
-        message: appTaskPlan.reason ?? 'المهمة غير مدعومة لهذا التطبيق',
+        message: appTaskPlan.reason ?? 'الطلب يبدو كأمر تنفيذي مرتبط بالجهاز أو التطبيقات',
         originalText: rawText,
         appTaskPlanResult: appTaskPlan,
       );
@@ -93,6 +94,7 @@ class AssistantRouterService {
         'ازيك',
         'عامل ايه',
         'اخبارك',
+        'إخبارك',
         'صباح الخير',
         'مساء الخير',
         'هاي',
@@ -101,9 +103,106 @@ class AssistantRouterService {
         'مرحبا',
         'اهلا',
         'أهلا',
+        'صباح النور',
+        'مساء النور',
+        'مين انت',
+        'من انت',
+        'انت مين',
       ],
     );
   }
+
+  // ================================
+  // KNOWLEDGE / ONLINE AI HEURISTICS
+  // ================================
+
+  bool _looksLikeKnowledgeQuestion(String text) {
+    return _containsAny(
+      text,
+      const [
+        'ما هو',
+        'ما هي',
+        'مين هو',
+        'مين هي',
+        'اشرح',
+        'فسر',
+        'احكيلي',
+        'قول لي',
+        'قل لي',
+        'عرفني',
+        'معلومة',
+        'معلومات',
+        'لماذا',
+        'ليه',
+        'ازاي',
+        'كيف',
+        'what is',
+        'who is',
+        'why',
+        'how',
+        'explain',
+        'tell me',
+      ],
+    );
+  }
+
+  // ================================
+  // DEVICE / APP ACTION HEURISTICS
+  // ================================
+
+  bool _looksLikeDirectDeviceAction(String text) {
+    return _containsAny(
+      text,
+      const [
+        'افتح',
+        'شغل',
+        'شغلي',
+        'شغللي',
+        'افتحلي',
+        'ابعت',
+        'ابعتلي',
+        'ابعث',
+        'اتصل',
+        'كلم',
+        'روح',
+        'ودي',
+        'ابحث',
+        'دوّر',
+        'افتح المتجر',
+        'نزل',
+        'ثبت',
+        'ارفع الصوت',
+        'وطي الصوت',
+        'اكتم الصوت',
+        'افتح الواي فاي',
+        'افتح البلوتوث',
+        'افتح الموقع',
+        'افتح الاعدادات',
+        'open',
+        'launch',
+        'send',
+        'call',
+        'search',
+        'install',
+        'play',
+      ],
+    );
+  }
+
+  // ================================
+  // APP PLAN STATUS HELPER
+  // ================================
+
+  bool _isRecoverableAppTaskPlan(AppTaskPlanResult plan) {
+    return plan.status == AppTaskPlanStatus.appNotFound ||
+        plan.status == AppTaskPlanStatus.unsupportedForApp ||
+        plan.status == AppTaskPlanStatus.needsMoreDetails ||
+        (plan.reason != null && plan.reason!.trim().isNotEmpty);
+  }
+
+  // ================================
+  // HELPERS
+  // ================================
 
   bool _containsAny(String text, List<String> patterns) {
     for (final pattern in patterns) {
@@ -116,7 +215,11 @@ class AssistantRouterService {
   }
 
   String _normalize(String text) {
-    return text.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+    return text
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[،,.!?؟]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 }
 
