@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../screens/settings_screen.dart';
+import '../services/app_control_service.dart';
 import '../services/assistant_profile_service.dart';
 import '../services/background_assistant_service.dart';
 import '../widgets/ai_orb.dart';
@@ -17,6 +18,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final AssistantProfileService _assistantProfileService =
       AssistantProfileService();
+  final AppControlService _appControlService = AppControlService();
 
   bool _assistantRunning = false;
   bool _isBusy = false;
@@ -185,6 +187,51 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // =========================
+  // QUICK ACTIONS
+  // =========================
+
+  Future<void> _openPhoneApp() async {
+    final opened = await _appControlService.openAppByName('الهاتف') ||
+        await _appControlService.openAppByName('phone') ||
+        await _appControlService.openAppByName('dialer');
+
+    if (!opened) {
+      _showSnackBar('تعذر فتح تطبيق الهاتف');
+    }
+  }
+
+  Future<void> _openMessagesApp() async {
+    final opened = await _appControlService.openAppByName('الرسائل') ||
+        await _appControlService.openAppByName('messages') ||
+        await _appControlService.openAppByName('sms');
+
+    if (!opened) {
+      _showSnackBar('تعذر فتح تطبيق الرسائل');
+    }
+  }
+
+  Future<void> _openMapsApp() async {
+    final opened = await _appControlService.openAppByName('خرائط') ||
+        await _appControlService.openAppByName('maps') ||
+        await _appControlService.openAppByName('google maps');
+
+    if (!opened) {
+      _showSnackBar('تعذر فتح الخرائط');
+    }
+  }
+
+  Future<void> _openMusicApp() async {
+    final opened = await _appControlService.openAppByName('يوتيوب ميوزيك') ||
+        await _appControlService.openAppByName('youtube music') ||
+        await _appControlService.openAppByName('music') ||
+        await _appControlService.openAppByName('spotify');
+
+    if (!opened) {
+      _showSnackBar('تعذر فتح تطبيق الموسيقى');
+    }
+  }
+
+  // =========================
   // SNACKBAR
   // =========================
 
@@ -205,32 +252,40 @@ class _HomeScreenState extends State<HomeScreen> {
   // ACTION ITEM
   // =========================
 
-  Widget _buildActionIcon(IconData icon, String label) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withOpacity(0.08),
+  Widget _buildActionIcon(
+    IconData icon,
+    String label,
+    Future<void> Function() onTap,
+  ) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(40),
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withOpacity(0.08),
+            ),
+            child: Icon(
+              icon,
+              color: Colors.white,
+              size: 28,
+            ),
           ),
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 28,
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 14,
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 14,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -406,10 +461,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _buildActionIcon(Icons.call, 'اتصال'),
-                    _buildActionIcon(Icons.message, 'رسائل'),
-                    _buildActionIcon(Icons.location_on, 'أماكن'),
-                    _buildActionIcon(Icons.music_note, 'موسيقى'),
+                    _buildActionIcon(Icons.call, 'اتصال', _openPhoneApp),
+                    _buildActionIcon(Icons.message, 'رسائل', _openMessagesApp),
+                    _buildActionIcon(Icons.location_on, 'أماكن', _openMapsApp),
+                    _buildActionIcon(Icons.music_note, 'موسيقى', _openMusicApp),
                   ],
                 ),
                 const SizedBox(height: 30),
