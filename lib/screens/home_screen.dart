@@ -214,7 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
           height: 60,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.08),
+            color: Colors.white.withOpacity(0.08),
           ),
           child: Icon(
             icon,
@@ -320,7 +320,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.08),
+                        color: Colors.white.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
@@ -362,7 +362,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: buttonColor,
-                    disabledBackgroundColor: buttonColor.withValues(alpha: 0.6),
+                    disabledBackgroundColor: buttonColor.withOpacity(0.6),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 30,
                       vertical: 14,
