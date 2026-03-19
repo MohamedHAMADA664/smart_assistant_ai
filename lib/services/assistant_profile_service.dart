@@ -7,6 +7,11 @@ class AssistantProfileService {
 
   final SettingsService _settingsService;
 
+  static const String _defaultAssistantName = 'مساعدي';
+  static const String _defaultWakeWord = 'يا مساعدي';
+  static const String _defaultVoiceLanguage = 'ar';
+  static const double _defaultSpeechRate = 0.5;
+
   // ================================
   // LOAD PROFILE
   // ================================
@@ -25,10 +30,10 @@ class AssistantProfileService {
         await _settingsService.isBackgroundModeEnabled();
 
     return AssistantProfile(
-      assistantName: assistantName,
-      wakeWord: wakeWord,
-      voiceLanguage: voiceLanguage,
-      speechRate: speechRate,
+      assistantName: _sanitizeAssistantName(assistantName),
+      wakeWord: _sanitizeWakeWord(wakeWord),
+      voiceLanguage: _sanitizeVoiceLanguage(voiceLanguage),
+      speechRate: _sanitizeSpeechRate(speechRate),
       notificationsEnabled: notificationsEnabled,
       onlineAiEnabled: onlineAiEnabled,
       backgroundModeEnabled: backgroundModeEnabled,
@@ -42,15 +47,22 @@ class AssistantProfileService {
   Future<void> saveProfile(AssistantProfile profile) async {
     await _settingsService.initialize();
 
-    await _settingsService.saveAssistantName(profile.assistantName);
-    await _settingsService.saveWakeWord(profile.wakeWord);
-    await _settingsService.saveVoiceLanguage(profile.voiceLanguage);
-    await _settingsService.saveSpeechRate(profile.speechRate);
+    final normalizedProfile = profile.normalized(
+      defaultAssistantName: _defaultAssistantName,
+      defaultWakeWord: _defaultWakeWord,
+      defaultVoiceLanguage: _defaultVoiceLanguage,
+      defaultSpeechRate: _defaultSpeechRate,
+    );
+
+    await _settingsService.saveAssistantName(normalizedProfile.assistantName);
+    await _settingsService.saveWakeWord(normalizedProfile.wakeWord);
+    await _settingsService.saveVoiceLanguage(normalizedProfile.voiceLanguage);
+    await _settingsService.saveSpeechRate(normalizedProfile.speechRate);
     await _settingsService
-        .setNotificationsEnabled(profile.notificationsEnabled);
-    await _settingsService.setOnlineAiEnabled(profile.onlineAiEnabled);
+        .setNotificationsEnabled(normalizedProfile.notificationsEnabled);
+    await _settingsService.setOnlineAiEnabled(normalizedProfile.onlineAiEnabled);
     await _settingsService
-        .setBackgroundModeEnabled(profile.backgroundModeEnabled);
+        .setBackgroundModeEnabled(normalizedProfile.backgroundModeEnabled);
   }
 
   // ================================
@@ -58,30 +70,45 @@ class AssistantProfileService {
   // ================================
 
   Future<void> updateAssistantName(String assistantName) async {
-    await _settingsService.saveAssistantName(assistantName);
+    await _settingsService.initialize();
+    await _settingsService.saveAssistantName(
+      _sanitizeAssistantName(assistantName),
+    );
   }
 
   Future<void> updateWakeWord(String wakeWord) async {
-    await _settingsService.saveWakeWord(wakeWord);
+    await _settingsService.initialize();
+    await _settingsService.saveWakeWord(
+      _sanitizeWakeWord(wakeWord),
+    );
   }
 
   Future<void> updateVoiceLanguage(String voiceLanguage) async {
-    await _settingsService.saveVoiceLanguage(voiceLanguage);
+    await _settingsService.initialize();
+    await _settingsService.saveVoiceLanguage(
+      _sanitizeVoiceLanguage(voiceLanguage),
+    );
   }
 
   Future<void> updateSpeechRate(double speechRate) async {
-    await _settingsService.saveSpeechRate(speechRate);
+    await _settingsService.initialize();
+    await _settingsService.saveSpeechRate(
+      _sanitizeSpeechRate(speechRate),
+    );
   }
 
   Future<void> setNotificationsEnabled(bool enabled) async {
+    await _settingsService.initialize();
     await _settingsService.setNotificationsEnabled(enabled);
   }
 
   Future<void> setOnlineAiEnabled(bool enabled) async {
+    await _settingsService.initialize();
     await _settingsService.setOnlineAiEnabled(enabled);
   }
 
   Future<void> setBackgroundModeEnabled(bool enabled) async {
+    await _settingsService.initialize();
     await _settingsService.setBackgroundModeEnabled(enabled);
   }
 
@@ -90,8 +117,44 @@ class AssistantProfileService {
   // ================================
 
   Future<AssistantProfile> resetProfile() async {
+    await _settingsService.initialize();
     await _settingsService.resetAllSettings();
     return loadProfile();
+  }
+
+  // ================================
+  // HELPERS
+  // ================================
+
+  String _sanitizeAssistantName(String value) {
+    final normalized = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) {
+      return _defaultAssistantName;
+    }
+
+    return normalized;
+  }
+
+  String _sanitizeWakeWord(String value) {
+    final normalized = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) {
+      return _defaultWakeWord;
+    }
+
+    return normalized;
+  }
+
+  String _sanitizeVoiceLanguage(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'ar' || normalized == 'en') {
+      return normalized;
+    }
+
+    return _defaultVoiceLanguage;
+  }
+
+  double _sanitizeSpeechRate(double value) {
+    return value.clamp(0.1, 1.0).toDouble();
   }
 }
 
@@ -132,6 +195,33 @@ class AssistantProfile {
       onlineAiEnabled: onlineAiEnabled ?? this.onlineAiEnabled,
       backgroundModeEnabled:
           backgroundModeEnabled ?? this.backgroundModeEnabled,
+    );
+  }
+
+  AssistantProfile normalized({
+    required String defaultAssistantName,
+    required String defaultWakeWord,
+    required String defaultVoiceLanguage,
+    required double defaultSpeechRate,
+  }) {
+    final normalizedAssistantName =
+        assistantName.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final normalizedWakeWord = wakeWord.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final normalizedVoiceLanguage = voiceLanguage.trim().toLowerCase();
+
+    return AssistantProfile(
+      assistantName: normalizedAssistantName.isEmpty
+          ? defaultAssistantName
+          : normalizedAssistantName,
+      wakeWord: normalizedWakeWord.isEmpty ? defaultWakeWord : normalizedWakeWord,
+      voiceLanguage:
+          normalizedVoiceLanguage == 'ar' || normalizedVoiceLanguage == 'en'
+              ? normalizedVoiceLanguage
+              : defaultVoiceLanguage,
+      speechRate: speechRate.clamp(0.1, 1.0).toDouble(),
+      notificationsEnabled: notificationsEnabled,
+      onlineAiEnabled: onlineAiEnabled,
+      backgroundModeEnabled: backgroundModeEnabled,
     );
   }
 
