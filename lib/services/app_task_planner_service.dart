@@ -31,6 +31,24 @@ class AppTaskPlannerService {
     final storeAppName = _extractStoreAppName(normalizedText, taskType);
     final serverName = _extractServerName(normalizedText, taskType);
 
+    final needsMoreDetails = _needsMoreDetails(
+      taskType: taskType,
+      targetAppName: targetAppName,
+      contactName: contactName,
+      messageText: messageText,
+      searchQuery: searchQuery,
+      storeAppName: storeAppName,
+    );
+
+    if (needsMoreDetails != null) {
+      return AppTaskPlanResult(
+        status: AppTaskPlanStatus.needsMoreDetails,
+        reason: needsMoreDetails,
+        originalText: rawText,
+        suggestedAppName: targetAppName,
+      );
+    }
+
     if (_taskNeedsApp(taskType) &&
         (targetAppName == null || targetAppName.trim().isEmpty)) {
       return const AppTaskPlanResult(
@@ -133,10 +151,10 @@ class AppTaskPlannerService {
       return AppTaskType.openStoreListing;
     }
 
-    if (_containsAny(text, const ['ابعت', 'ارسل', 'بعت'])) {
+    if (_containsAny(text, const ['ابعت', 'ارسل', 'أرسل', 'بعت'])) {
       if (_containsAny(
         text,
-        const ['رسالة', 'واتساب', 'تليجرام', 'telegram'],
+        const ['رسالة', 'واتساب', 'تليجرام', 'telegram', 'whatsapp'],
       )) {
         return AppTaskType.prepareMessage;
       }
@@ -172,19 +190,24 @@ class AppTaskPlannerService {
   String? _extractTargetAppName(String text, AppTaskType taskType) {
     switch (taskType) {
       case AppTaskType.openApp:
-        return _extractAfterFirstKeyword(
-          text,
-          const ['افتح', 'شغل', 'ابدأ', 'open', 'run'],
+        return _cleanExtractedValue(
+          _extractAfterFirstKeyword(
+            text,
+            const ['افتح', 'شغل', 'ابدأ', 'open', 'run'],
+          ),
         );
 
       case AppTaskType.openChat:
       case AppTaskType.prepareMessage:
-        if (_containsAny(text, const ['واتساب', 'whatsapp'])) {
-          return 'واتساب';
+        if (_containsAny(
+          text,
+          const ['واتساب بيزنس', 'واتساب بزنس', 'whatsapp business'],
+        )) {
+          return 'واتساب بيزنس';
         }
 
-        if (_containsAny(text, const ['واتساب بيزنس', 'whatsapp business'])) {
-          return 'واتساب بيزنس';
+        if (_containsAny(text, const ['واتساب', 'whatsapp'])) {
+          return 'واتساب';
         }
 
         if (_containsAny(text, const ['تليجرام', 'telegram'])) {
@@ -198,13 +221,19 @@ class AppTaskPlannerService {
           return 'يوتيوب';
         }
 
+        if (_containsAny(text, const ['خرائط', 'maps', 'google maps'])) {
+          return 'خرائط';
+        }
+
         if (_containsAny(text, const ['جوجل', 'google', 'كروم', 'chrome'])) {
           return 'جوجل';
         }
 
-        return _extractAfterFirstKeyword(
-          text,
-          const ['ابحث في', 'دور في', 'search in'],
+        return _cleanExtractedValue(
+          _extractAfterFirstKeyword(
+            text,
+            const ['ابحث في', 'دور في', 'search in'],
+          ),
         );
 
       case AppTaskType.searchStore:
@@ -229,39 +258,43 @@ class AppTaskPlannerService {
       return null;
     }
 
-    final marker = _findFirstMarker(
-      text,
-      const ['ل', 'الى', 'إلى', 'to'],
-    );
+    for (final marker in const ['ل', 'الى', 'إلى', 'to']) {
+      final extracted = _findFirstMarker(text, [marker]);
+      if (extracted == null || extracted.isEmpty) {
+        continue;
+      }
 
-    if (marker == null) {
-      return null;
-    }
+      var result = extracted.trim();
 
-    final extracted = marker.trim();
+      for (final stopWord in const [
+        'وقوله',
+        'وقل له',
+        'قول له',
+        'قل له',
+        'قول',
+        'رسالة',
+        'message',
+        'على واتساب',
+        'في واتساب',
+        'على تليجرام',
+        'في تليجرام',
+        'واتساب',
+        'تليجرام',
+      ]) {
+        final index = result.indexOf(stopWord);
+        if (index > 0) {
+          result = result.substring(0, index).trim();
+        }
+      }
 
-    if (extracted.isEmpty) {
-      return null;
-    }
+      result = _cleanExtractedValue(result) ?? '';
 
-    final stopWords = <String>[
-      'وقوله',
-      'وقل له',
-      'قول له',
-      'قول',
-      'رسالة',
-      'message',
-    ];
-
-    var result = extracted;
-    for (final stopWord in stopWords) {
-      final index = result.indexOf(stopWord);
-      if (index > 0) {
-        result = result.substring(0, index).trim();
+      if (result.isNotEmpty) {
+        return result;
       }
     }
 
-    return result.isEmpty ? null : result;
+    return null;
   }
 
   String? _extractMessageText(String text, AppTaskType taskType) {
@@ -275,12 +308,15 @@ class AppTaskPlannerService {
       'قول له',
       'قل له',
       'message',
+      'محتوى الرسالة',
+      'نص الرسالة',
     ]) {
       final index = text.indexOf(marker);
       if (index >= 0) {
         final message = text.substring(index + marker.length).trim();
-        if (message.isNotEmpty) {
-          return message;
+        final cleaned = _cleanExtractedValue(message);
+        if (cleaned != null && cleaned.isNotEmpty) {
+          return cleaned;
         }
       }
     }
@@ -303,7 +339,31 @@ class AppTaskPlannerService {
       return null;
     }
 
-    return query.trim();
+    var cleaned = query.trim();
+
+    for (final suffix in const [
+      'في يوتيوب',
+      'في اليوتيوب',
+      'على يوتيوب',
+      'على اليوتيوب',
+      'في جوجل',
+      'على جوجل',
+      'في كروم',
+      'على كروم',
+      'في خرائط',
+      'على خرائط',
+      'في المتجر',
+      'على المتجر',
+      'في بلاي ستور',
+      'على بلاي ستور',
+    ]) {
+      if (cleaned.endsWith(suffix)) {
+        cleaned = cleaned.substring(0, cleaned.length - suffix.length).trim();
+      }
+    }
+
+    final result = _cleanExtractedValue(cleaned);
+    return result == null || result.isEmpty ? null : result;
   }
 
   String? _extractStoreAppName(String text, AppTaskType taskType) {
@@ -323,18 +383,30 @@ class AppTaskPlannerService {
       final index = text.indexOf(marker);
       if (index >= 0) {
         final appName = text.substring(index + marker.length).trim();
-        if (appName.isNotEmpty) {
-          return appName;
+        final cleaned = _cleanStoreName(appName);
+        if (cleaned != null && cleaned.isNotEmpty) {
+          return cleaned;
         }
       }
     }
 
     final fallback = _extractAfterFirstKeyword(
       text,
-      const ['نزّل', 'نزل', 'ثبت', 'حمّل', 'افتح المتجر على', 'افتح المتجر'],
+      const [
+        'نزّل',
+        'نزل',
+        'ثبت',
+        'حمّل',
+        'تحميل',
+        'افتح المتجر على',
+        'افتح المتجر',
+        'ابحث في المتجر عن',
+        'ابحث في المتجر',
+      ],
     );
 
-    return fallback == null || fallback.isEmpty ? null : fallback;
+    final cleaned = _cleanStoreName(fallback);
+    return cleaned == null || cleaned.isEmpty ? null : cleaned;
   }
 
   String? _extractServerName(String text, AppTaskType taskType) {
@@ -346,8 +418,9 @@ class AppTaskPlannerService {
       final index = text.indexOf(marker);
       if (index >= 0) {
         final value = text.substring(index + marker.length).trim();
-        if (value.isNotEmpty) {
-          return value;
+        final cleaned = _cleanExtractedValue(value);
+        if (cleaned != null && cleaned.isNotEmpty) {
+          return cleaned;
         }
       }
     }
@@ -360,16 +433,85 @@ class AppTaskPlannerService {
       return 'vpn master';
     }
 
+    if (_containsAny(text, const ['super vpn', 'سوبر vpn', 'سوبر في بي ان'])) {
+      return 'super vpn';
+    }
+
     if (_containsAny(text, const ['vpn'])) {
       final extracted = _extractAfterFirstKeyword(
         text,
         const ['افتح', 'شغل', 'connect', 'اتصل'],
       );
 
-      return extracted == null || extracted.isEmpty ? 'vpn' : extracted;
+      final cleaned = _cleanExtractedValue(extracted);
+      return cleaned == null || cleaned.isEmpty ? 'vpn' : cleaned;
+    }
+
+    if (_containsAny(text, const ['في بي ان'])) {
+      return 'vpn';
     }
 
     return null;
+  }
+
+  String? _needsMoreDetails({
+    required AppTaskType taskType,
+    required String? targetAppName,
+    required String? contactName,
+    required String? messageText,
+    required String? searchQuery,
+    required String? storeAppName,
+  }) {
+    switch (taskType) {
+      case AppTaskType.prepareMessage:
+        if (contactName == null || contactName.trim().isEmpty) {
+          return 'اذكر اسم جهة الاتصال التي تريد المراسلة إليها';
+        }
+
+        if (messageText == null || messageText.trim().isEmpty) {
+          return 'اذكر نص الرسالة المطلوب إرساله';
+        }
+
+        return null;
+
+      case AppTaskType.openChat:
+        if (contactName == null || contactName.trim().isEmpty) {
+          return 'اذكر اسم جهة الاتصال التي تريد فتح المحادثة معها';
+        }
+
+        return null;
+
+      case AppTaskType.searchInApp:
+        if (searchQuery == null || searchQuery.trim().isEmpty) {
+          return 'اذكر ما الذي تريد البحث عنه';
+        }
+
+        return null;
+
+      case AppTaskType.searchStore:
+      case AppTaskType.openStoreListing:
+      case AppTaskType.installApp:
+        if (storeAppName == null || storeAppName.trim().isEmpty) {
+          return 'اذكر اسم التطبيق المطلوب في المتجر';
+        }
+
+        return null;
+
+      case AppTaskType.openApp:
+      case AppTaskType.connectVpn:
+      case AppTaskType.disconnectVpn:
+        if (_taskNeedsApp(taskType) &&
+            (targetAppName == null || targetAppName.trim().isEmpty)) {
+          return 'اذكر اسم التطبيق المطلوب';
+        }
+
+        return null;
+
+      case AppTaskType.sendMessage:
+      case AppTaskType.openSettingsInApp:
+      case AppTaskType.unknown:
+        return null;
+    }
   }
 
   bool _taskNeedsApp(AppTaskType taskType) {
@@ -418,11 +560,17 @@ class AppTaskPlannerService {
 
   String? _findFirstMarker(String text, List<String> markers) {
     for (final marker in markers) {
-      final pattern = ' $marker';
-      final index = text.indexOf(pattern);
+      final directIndex = text.indexOf('$marker ');
+      if (directIndex >= 0) {
+        final result = text.substring(directIndex + marker.length).trim();
+        if (result.isNotEmpty) {
+          return result;
+        }
+      }
 
-      if (index >= 0) {
-        final result = text.substring(index + pattern.length).trim();
+      final spacedIndex = text.indexOf(' $marker ');
+      if (spacedIndex >= 0) {
+        final result = text.substring(spacedIndex + marker.length + 1).trim();
         if (result.isNotEmpty) {
           return result;
         }
@@ -432,12 +580,80 @@ class AppTaskPlannerService {
     return null;
   }
 
+  String? _cleanExtractedValue(String? value) {
+    if (value == null) {
+      return null;
+    }
+
+    var result = value.trim();
+
+    if (result.isEmpty) {
+      return null;
+    }
+
+    for (final separator in const [
+      ' وابعت',
+      ' و ابعت',
+      ' وارسل',
+      ' و ارسل',
+      ' وابحث',
+      ' و ابحث',
+      ' ودور',
+      ' و دور',
+      ' وقول',
+      ' و قول',
+      ' وقل',
+      ' و قل',
+      ' ثم',
+      ' بعدين',
+      ' وبعدها',
+      ' وبعد كده',
+    ]) {
+      final index = result.indexOf(separator);
+      if (index > 0) {
+        result = result.substring(0, index).trim();
+      }
+    }
+
+    result = result
+        .replaceAll(RegExp(r'^(في|على|من)\s+'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    return result.isEmpty ? null : result;
+  }
+
+  String? _cleanStoreName(String? value) {
+    final cleaned = _cleanExtractedValue(value);
+    if (cleaned == null) {
+      return null;
+    }
+
+    var result = cleaned;
+
+    for (final suffix in const [
+      'من المتجر',
+      'في المتجر',
+      'على المتجر',
+      'من بلاي ستور',
+      'في بلاي ستور',
+      'على بلاي ستور',
+      'play store',
+    ]) {
+      if (result.endsWith(suffix)) {
+        result = result.substring(0, result.length - suffix.length).trim();
+      }
+    }
+
+    return result.isEmpty ? null : result;
+  }
+
   String _normalize(String text) {
     return text
         .toLowerCase()
         .trim()
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .replaceAll(RegExp(r'[،,.!?؟]'), '');
+        .replaceAll(RegExp(r'[،,.!?؟]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 }
 
@@ -469,4 +685,5 @@ enum AppTaskPlanStatus {
   missingTargetApp,
   appNotFound,
   unsupportedForApp,
+  needsMoreDetails,
 }
