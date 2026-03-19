@@ -7,7 +7,7 @@ plugins {
 android {
     namespace = "com.example.smart_assistant_ai"
     compileSdk = 35
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "25.1.8937393"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
