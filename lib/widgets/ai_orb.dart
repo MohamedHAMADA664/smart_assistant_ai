@@ -8,7 +8,7 @@ class AIOrb extends StatefulWidget {
 }
 
 class _AIOrbState extends State<AIOrb> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  late final AnimationController _controller;
 
   @override
   void initState() {
@@ -24,31 +24,48 @@ class _AIOrbState extends State<AIOrb> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _controller,
+      child: Container(
+        width: 180,
+        height: 180,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            colors: [
+              Color(0xff6a5cff),
+              Color(0xff9c27ff),
+              Color(0xff00e5ff),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Center(
+          child: Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.14),
+            ),
+          ),
+        ),
+      ),
       builder: (context, child) {
-        double glow = 30 + (_controller.value * 40);
+        final glowBlur = 30 + (_controller.value * 40);
+        final glowSpread = glowBlur / 3;
 
         return Container(
-          width: 180,
-          height: 180,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              colors: [
-                Color(0xff6a5cff),
-                Color(0xff9c27ff),
-                Color(0xff00e5ff),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.blueAccent.withValues(alpha: 0.7),
-                blurRadius: glow,
-                spreadRadius: glow / 3,
-              )
+                blurRadius: glowBlur,
+                spreadRadius: glowSpread,
+              ),
             ],
           ),
+          child: child,
         );
       },
     );

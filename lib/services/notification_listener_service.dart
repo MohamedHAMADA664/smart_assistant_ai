@@ -1,99 +1,131 @@
+import 'dart:async';
+
 import 'package:notification_listener_service/notification_listener_service.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 
-class NotificationListenerAI {
-  final FlutterTts _tts = FlutterTts();
+import 'voice_response_service.dart';
 
-  String? _lastNotificationId;
+class NotificationListenerServiceAI {
+  NotificationListenerServiceAI({
+    VoiceResponseService? voiceResponseService,
+  }) : _voice = voiceResponseService ?? VoiceResponseService();
+
+  final VoiceResponseService _voice;
+
+  StreamSubscription<dynamic>? _notificationSubscription;
+  String? _lastNotificationFingerprint;
+  bool _started = false;
+
+  bool get isStarted => _started;
+
+  static const Map<String, String> _supportedApps = {
+    'com.whatsapp': 'واتساب',
+    'com.facebook.orca': 'ماسنجر',
+    'org.telegram.messenger': 'تيليجرام',
+  };
 
   // ==========================
   // START LISTENING
   // ==========================
 
-  void startListening() {
-    NotificationListenerService.notificationsStream.listen((event) async {
-      String? packageName = event.packageName;
-      String? title = event.title;
-      String? content = event.content;
+  Future<void> startListening() async {
+    if (_started) {
+      return;
+    }
 
-      if (packageName == null) return;
+    _notificationSubscription =
+        NotificationListenerService.notificationsStream.listen(
+      (event) async {
+        try {
+          final packageName = event.packageName?.trim();
+          final title = event.title?.trim();
+          final content = event.content?.trim();
 
-      // منع قراءة نفس الإشعار مرتين
+          if (packageName == null || packageName.isEmpty) {
+            return;
+          }
 
-      String currentId = "$packageName$title$content";
+          final appName = _supportedApps[packageName];
+          if (appName == null) {
+            return;
+          }
 
-      if (_lastNotificationId == currentId) {
-        return;
-      }
+          if (title == null || title.isEmpty) {
+            return;
+          }
 
-      _lastNotificationId = currentId;
+          if (content == null || content.isEmpty) {
+            return;
+          }
 
-      // تجاهل الإشعارات الفارغة
+          final fingerprint = _buildNotificationFingerprint(
+            packageName: packageName,
+            title: title,
+            content: content,
+          );
 
-      if (title == null || title.isEmpty) return;
-      if (content == null || content.isEmpty) return;
+          if (_lastNotificationFingerprint == fingerprint) {
+            return;
+          }
 
-      // ==========================
-      // WHATSAPP
-      // ==========================
+          _lastNotificationFingerprint = fingerprint;
 
-      if (packageName == "com.whatsapp") {
-        await _announceMessage(
-          "واتساب",
-          title,
-          content,
-        );
+          await _announceMessage(
+            appName: appName,
+            sender: title,
+            message: content,
+          );
+        } catch (_) {
+          // Ignore notification parsing errors silently for now.
+        }
+      },
+      onError: (_) {
+        // Ignore stream errors silently for now.
+      },
+    );
 
-        return;
-      }
+    _started = true;
+  }
 
-      // ==========================
-      // MESSENGER
-      // ==========================
+  // ==========================
+  // STOP LISTENING
+  // ==========================
 
-      if (packageName == "com.facebook.orca") {
-        await _announceMessage(
-          "ماسنجر",
-          title,
-          content,
-        );
+  Future<void> stopListening() async {
+    await _notificationSubscription?.cancel();
+    _notificationSubscription = null;
+    _started = false;
+  }
 
-        return;
-      }
+  // ==========================
+  // DISPOSE
+  // ==========================
 
-      // ==========================
-      // TELEGRAM
-      // ==========================
-
-      if (packageName == "org.telegram.messenger") {
-        await _announceMessage(
-          "تيليجرام",
-          title,
-          content,
-        );
-
-        return;
-      }
-    });
+  Future<void> dispose() async {
+    await stopListening();
   }
 
   // ==========================
   // ANNOUNCE MESSAGE
   // ==========================
 
-  Future<void> _announceMessage(
-    String app,
-    String sender,
-    String message,
-  ) async {
-    String speech = "لديك رسالة جديدة من $sender على $app";
+  Future<void> _announceMessage({
+    required String appName,
+    required String sender,
+    required String message,
+  }) async {
+    final speech = 'لديك رسالة جديدة من $sender على $appName';
+    await _voice.speak(speech);
+  }
 
-    await _tts.setLanguage("ar");
+  // ==========================
+  // HELPERS
+  // ==========================
 
-    await _tts.setSpeechRate(0.45);
-
-    await _tts.setPitch(1.0);
-
-    await _tts.speak(speech);
+  String _buildNotificationFingerprint({
+    required String packageName,
+    required String title,
+    required String content,
+  }) {
+    return '$packageName|$title|$content';
   }
 }

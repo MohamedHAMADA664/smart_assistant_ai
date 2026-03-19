@@ -1,23 +1,53 @@
 import 'package:flutter/services.dart';
+
 import 'voice_response_service.dart';
 
+@Deprecated(
+  'Use VoiceListenerService native call event handling instead. '
+  'This class is kept temporarily for backward compatibility.',
+)
 class CallHandlerService {
-  static const MethodChannel _channel = MethodChannel("call_channel");
+  CallHandlerService({
+    VoiceResponseService? voiceResponseService,
+  }) : _voice = voiceResponseService ?? VoiceResponseService();
 
-  final VoiceResponseService _voice = VoiceResponseService();
+  static const MethodChannel _channel =
+      MethodChannel('smart_assistant/call_events');
 
-  void init() {
+  final VoiceResponseService _voice;
+
+  bool _initialized = false;
+
+  Future<void> init() async {
+    if (_initialized) {
+      return;
+    }
+
     _channel.setMethodCallHandler((call) async {
       try {
-        if (call.method == "incoming_call") {
-          String number = call.arguments ?? "رقم غير معروف";
-
-          // 🔥 يتكلم لما المكالمة تيجي
-          await _voice.speak("فيه مكالمة من $number هل تريد الرد؟");
+        if (call.method != 'incomingCall') {
+          return;
         }
-      } catch (e) {
-        print("CallHandler error: $e");
+
+        final number = (call.arguments as String?)?.trim();
+        final displayNumber =
+            (number == null || number.isEmpty) ? 'رقم غير معروف' : number;
+
+        await _voice.speak('فيه مكالمة من $displayNumber هل تريد الرد؟');
+      } catch (_) {
+        // Ignore compatibility handler errors silently.
       }
     });
+
+    _initialized = true;
+  }
+
+  Future<void> dispose() async {
+    if (!_initialized) {
+      return;
+    }
+
+    _channel.setMethodCallHandler(null);
+    _initialized = false;
   }
 }

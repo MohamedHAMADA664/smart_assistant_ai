@@ -1,52 +1,90 @@
+import 'dart:async';
+
 import 'package:phone_state/phone_state.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 
+import '../core/system_controller.dart';
 import 'contact_call_service.dart';
-
-import 'call_control_service.dart';
-import 'voice_listener_service.dart';
+import 'voice_response_service.dart';
 
 class CallListenerService {
-  final FlutterTts _tts = FlutterTts();
+  CallListenerService({
+    ContactCallService? contactCallService,
+    VoiceResponseService? voiceResponseService,
+    SystemController? systemController,
+  })  : _contacts = contactCallService ?? ContactCallService(),
+        _voice = voiceResponseService ?? VoiceResponseService(),
+        _systemController = systemController ?? SystemController();
 
-  final ContactCallService _contacts = ContactCallService();
-  final CallControlService _callControl = CallControlService();
-  final VoiceListenerService _voiceListener = VoiceListenerService();
+  final ContactCallService _contacts;
+  final VoiceResponseService _voice;
+  final SystemController _systemController;
 
-  bool _listeningForResponse = false;
+  StreamSubscription<PhoneState>? _phoneStateSubscription;
+  bool _started = false;
+
+  bool get isStarted => _started;
 
   // ================================
   // START LISTENING
   // ================================
 
   Future<void> startListening() async {
+    if (_started) {
+      return;
+    }
+
     await _contacts.loadContacts();
 
-    PhoneState.stream.listen((PhoneState state) async {
-      if (state.status == PhoneStateStatus.CALL_INCOMING) {
-        String? number = state.number;
-
-        if (number != null && number.isNotEmpty) {
-          await _announceCaller(number);
+    _phoneStateSubscription = PhoneState.stream.listen(
+      (PhoneState state) async {
+        if (state.status != PhoneStateStatus.CALL_INCOMING) {
+          return;
         }
-      }
-    });
+
+        final rawNumber = state.number?.trim();
+        if (rawNumber == null || rawNumber.isEmpty) {
+          await _handleIncomingCall('رقم غير معروف');
+          return;
+        }
+
+        await _handleIncomingCall(rawNumber);
+      },
+      onError: (_) {
+        // Ignore stream errors silently for now.
+      },
+    );
+
+    _started = true;
   }
 
   // ================================
-  // ANNOUNCE CALLER
+  // STOP LISTENING
   // ================================
 
-  Future<void> _announceCaller(String number) async {
-    String callerName = await _findContactName(number);
+  Future<void> stopListening() async {
+    await _phoneStateSubscription?.cancel();
+    _phoneStateSubscription = null;
+    _started = false;
+  }
 
-    if (callerName.isNotEmpty) {
-      await _speak("مكالمة من $callerName هل تريد الرد أم الرفض");
-    } else {
-      await _speak("مكالمة من رقم غير مسجل هل تريد الرد أم الرفض");
-    }
+  // ================================
+  // DISPOSE
+  // ================================
 
-    await _listenForVoiceResponse();
+  Future<void> dispose() async {
+    await stopListening();
+  }
+
+  // ================================
+  // HANDLE INCOMING CALL
+  // ================================
+
+  Future<void> _handleIncomingCall(String number) async {
+    final callerName = await _findContactName(number);
+    final displayName = callerName.isNotEmpty ? callerName : 'رقم غير مسجل';
+
+    await _voice.speak('مكالمة من $displayName، قل رد أو ارفض');
+    await _systemController.onIncomingCall(number);
   }
 
   // ================================
@@ -54,19 +92,24 @@ class CallListenerService {
   // ================================
 
   Future<String> _findContactName(String number) async {
-    number = _cleanNumber(number);
+    final cleanedIncomingNumber = _cleanNumber(number);
 
-    for (var contact in _contacts.contacts) {
-      for (var phone in contact.phones) {
-        String contactNumber = _cleanNumber(phone.number);
+    for (final contact in _contacts.contacts) {
+      for (final phone in contact.phones) {
+        final cleanedContactNumber = _cleanNumber(phone.number);
 
-        if (contactNumber.contains(number)) {
+        if (cleanedContactNumber.isEmpty || cleanedIncomingNumber.isEmpty) {
+          continue;
+        }
+
+        if (cleanedContactNumber.endsWith(cleanedIncomingNumber) ||
+            cleanedIncomingNumber.endsWith(cleanedContactNumber)) {
           return contact.displayName;
         }
       }
     }
 
-    return "";
+    return '';
   }
 
   // ================================
@@ -74,66 +117,6 @@ class CallListenerService {
   // ================================
 
   String _cleanNumber(String number) {
-    return number.replaceAll(" ", "").replaceAll("-", "").replaceAll("+", "");
-  }
-
-  // ================================
-  // LISTEN FOR VOICE RESPONSE
-  // ================================
-
-  Future<void> _listenForVoiceResponse() async {
-    if (_listeningForResponse) return;
-
-    _listeningForResponse = true;
-
-    await _voiceListener.initialize();
-
-    await _voiceListener.startListening();
-  }
-
-  // ================================
-  // HANDLE COMMAND
-  // ================================
-
-  Future<void> handleVoiceCommand(String text) async {
-    if (!_listeningForResponse) return;
-
-    String command = text.toLowerCase();
-
-    if (command.contains("رد") || command.contains("answer")) {
-      await _callControl.acceptCall();
-
-      _stopVoiceResponse();
-    }
-
-    if (command.contains("ارفض") ||
-        command.contains("اقفل") ||
-        command.contains("reject")) {
-      await _callControl.rejectCall();
-
-      _stopVoiceResponse();
-    }
-  }
-
-  // ================================
-  // STOP LISTENING
-  // ================================
-
-  void _stopVoiceResponse() {
-    _listeningForResponse = false;
-
-    _voiceListener.stopListening();
-  }
-
-  // ================================
-  // SPEAK
-  // ================================
-
-  Future<void> _speak(String text) async {
-    await _tts.setLanguage("ar");
-
-    await _tts.setSpeechRate(0.5);
-
-    await _tts.speak(text);
+    return number.replaceAll(RegExp(r'[^0-9]'), '');
   }
 }

@@ -1,31 +1,66 @@
-import '../services/settings_service.dart';
+import '../services/assistant_profile_service.dart';
 
 class WakeWordService {
-  String _wakeWord = "مساعد";
+  WakeWordService({
+    AssistantProfileService? assistantProfileService,
+  }) : _assistantProfileService =
+            assistantProfileService ?? AssistantProfileService();
+
+  final AssistantProfileService _assistantProfileService;
+
+  String _assistantName = 'مساعدي';
+  String _wakeWord = 'يا مساعدي';
 
   final List<String> _defaultWakeWords = [
-    "يا مساعد",
-    "مساعد",
-    "hey assistant",
-    "ok assistant",
-    "assistant",
+    'يا مساعد',
+    'مساعد',
+    'hey assistant',
+    'ok assistant',
+    'assistant',
   ];
 
   final List<String> _customWakeWords = [];
+
+  bool _initialized = false;
+
+  String get assistantName => _assistantName;
+  String get wakeWord => _wakeWord;
+
+  List<String> get activeWakeWords {
+    final words = <String>{
+      ..._defaultWakeWords.map(_normalize),
+      ..._buildAssistantNameWakeWords(_assistantName).map(_normalize),
+      ..._buildWakeWordVariants(_wakeWord).map(_normalize),
+      ..._customWakeWords.map(_normalize),
+    };
+
+    words.removeWhere((word) => word.trim().isEmpty);
+    return words.toList();
+  }
 
   // =================================
   // INITIALIZE
   // =================================
 
   Future<void> initialize() async {
-    try {
-      String savedWord = await SettingsService.getWakeWord();
+    if (_initialized) {
+      return;
+    }
 
-      if (savedWord.isNotEmpty) {
-        _wakeWord = _normalize(savedWord);
-      }
-    } catch (e) {
-      _wakeWord = "مساعد";
+    try {
+      final profile = await _assistantProfileService.loadProfile();
+
+      final normalizedAssistantName = _normalize(profile.assistantName);
+      final normalizedWakeWord = _normalize(profile.wakeWord);
+
+      _assistantName =
+          normalizedAssistantName.isEmpty ? 'مساعدي' : normalizedAssistantName;
+      _wakeWord = normalizedWakeWord.isEmpty ? 'يا مساعدي' : normalizedWakeWord;
+      _initialized = true;
+    } catch (_) {
+      _assistantName = 'مساعدي';
+      _wakeWord = 'يا مساعدي';
+      _initialized = true;
     }
   }
 
@@ -34,26 +69,14 @@ class WakeWordService {
   // =================================
 
   bool detectWakeWord(String speechText) {
-    speechText = _normalize(speechText);
+    final normalizedSpeechText = _normalize(speechText);
 
-    // Check main wake word
-
-    if (speechText.contains(_wakeWord)) {
-      return true;
+    if (normalizedSpeechText.isEmpty) {
+      return false;
     }
 
-    // Check default wake words
-
-    for (String word in _defaultWakeWords) {
-      if (speechText.contains(_normalize(word))) {
-        return true;
-      }
-    }
-
-    // Check custom wake words
-
-    for (String word in _customWakeWords) {
-      if (speechText.contains(_normalize(word))) {
+    for (final word in activeWakeWords) {
+      if (_containsPhrase(normalizedSpeechText, word)) {
         return true;
       }
     }
@@ -66,11 +89,39 @@ class WakeWordService {
   // =================================
 
   Future<void> setWakeWord(String newWord) async {
-    if (newWord.trim().isEmpty) return;
+    final normalizedWord = _normalize(newWord);
 
-    _wakeWord = _normalize(newWord);
+    if (normalizedWord.isEmpty) {
+      return;
+    }
 
-    await SettingsService.saveWakeWord(_wakeWord);
+    final profile = await _assistantProfileService.loadProfile();
+    final updatedProfile = profile.copyWith(
+      wakeWord: normalizedWord,
+    );
+
+    await _assistantProfileService.saveProfile(updatedProfile);
+    _wakeWord = normalizedWord;
+  }
+
+  // =================================
+  // SET ASSISTANT NAME
+  // =================================
+
+  Future<void> setAssistantName(String newName) async {
+    final normalizedName = _normalize(newName);
+
+    if (normalizedName.isEmpty) {
+      return;
+    }
+
+    final profile = await _assistantProfileService.loadProfile();
+    final updatedProfile = profile.copyWith(
+      assistantName: normalizedName,
+    );
+
+    await _assistantProfileService.saveProfile(updatedProfile);
+    _assistantName = normalizedName;
   }
 
   // =================================
@@ -78,10 +129,14 @@ class WakeWordService {
   // =================================
 
   void addCustomWakeWord(String word) {
-    word = _normalize(word);
+    final normalizedWord = _normalize(word);
 
-    if (!_customWakeWords.contains(word)) {
-      _customWakeWords.add(word);
+    if (normalizedWord.isEmpty) {
+      return;
+    }
+
+    if (!_customWakeWords.contains(normalizedWord)) {
+      _customWakeWords.add(normalizedWord);
     }
   }
 
@@ -90,29 +145,75 @@ class WakeWordService {
   // =================================
 
   void removeCustomWakeWord(String word) {
-    word = _normalize(word);
+    final normalizedWord = _normalize(word);
 
-    _customWakeWords.remove(word);
+    if (normalizedWord.isEmpty) {
+      return;
+    }
+
+    _customWakeWords.remove(normalizedWord);
   }
 
   // =================================
-  // GET CURRENT WAKE WORD
+  // GET CURRENT VALUES
   // =================================
 
   String getWakeWord() {
     return _wakeWord;
   }
 
+  String getAssistantName() {
+    return _assistantName;
+  }
+
   // =================================
-  // NORMALIZE TEXT
+  // HELPERS
   // =================================
+
+  List<String> _buildAssistantNameWakeWords(String assistantName) {
+    final normalizedName = _normalize(assistantName);
+
+    if (normalizedName.isEmpty) {
+      return const <String>[];
+    }
+
+    return <String>[
+      normalizedName,
+      'يا $normalizedName',
+      'hey $normalizedName',
+      'ok $normalizedName',
+    ];
+  }
+
+  List<String> _buildWakeWordVariants(String wakeWord) {
+    final normalizedWakeWord = _normalize(wakeWord);
+
+    if (normalizedWakeWord.isEmpty) {
+      return const <String>[];
+    }
+
+    final variants = <String>{
+      normalizedWakeWord,
+    };
+
+    if (!normalizedWakeWord.startsWith('يا ')) {
+      variants.add('يا $normalizedWakeWord');
+    }
+
+    return variants.toList();
+  }
+
+  bool _containsPhrase(String text, String phrase) {
+    final normalizedText = ' ${_normalize(text)} ';
+    final normalizedPhrase = ' ${_normalize(phrase)} ';
+    return normalizedText.contains(normalizedPhrase);
+  }
 
   String _normalize(String text) {
     return text
         .toLowerCase()
         .trim()
-        .replaceAll("  ", " ")
-        .replaceAll(",", "")
-        .replaceAll(".", "");
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(RegExp(r'[،,.!?؟]'), '');
   }
 }

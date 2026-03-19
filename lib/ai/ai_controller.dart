@@ -1,112 +1,192 @@
-import 'offline_ai_brain.dart';
-import 'command_engine.dart';
+import '../services/app_task_executor_service.dart';
+import '../services/assistant_router_service.dart';
+import '../services/online_ai_service.dart';
 import '../services/voice_response_service.dart';
-import '../models/intent_model.dart';
 
 class AIController {
-  final OfflineAIBrain _brain = OfflineAIBrain();
-  final CommandEngine _engine = CommandEngine();
-  final VoiceResponseService _voice = VoiceResponseService();
+  AIController({
+    AssistantRouterService? assistantRouterService,
+    AppTaskExecutorService? appTaskExecutorService,
+    OnlineAiService? onlineAiService,
+    VoiceResponseService? voiceResponseService,
+  })  : _router = assistantRouterService ?? AssistantRouterService(),
+        _executor = appTaskExecutorService ?? AppTaskExecutorService(),
+        _onlineAiService = onlineAiService ?? OnlineAiService(),
+        _voice = voiceResponseService ?? VoiceResponseService();
 
-  // =================================
-  // MAIN VOICE INPUT
-  // =================================
+  final AssistantRouterService _router;
+  final AppTaskExecutorService _executor;
+  final OnlineAiService _onlineAiService;
+  final VoiceResponseService _voice;
 
-  Future<void> processVoice(String speechText) async {
-    if (speechText.trim().isEmpty) {
-      return;
+  Future<AIProcessResult> processVoice(String speechText) async {
+    final cleanText = _normalize(speechText);
+
+    if (cleanText.isEmpty) {
+      return const AIProcessResult.ignored();
     }
 
-    String cleanText = _normalize(speechText);
+    final routeResult = await _router.route(cleanText);
 
-    // =================================
-    // ANALYZE → LIST OF INTENTS
-    // =================================
+    switch (routeResult.routeType) {
+      case AssistantRouteType.smallTalk:
+        return _handleSmallTalk(cleanText);
 
-    List<IntentModel> intents = _brain.analyze(cleanText);
+      case AssistantRouteType.appTask:
+        return _handleAppTaskRoute(routeResult);
 
-    // =================================
-    // EXECUTE EACH INTENT
-    // =================================
+      case AssistantRouteType.onlineAi:
+        return _handleOnlineAiRoute(cleanText);
 
-    for (IntentModel intent in intents) {
-      await _handleIntent(intent);
-    }
-  }
+      case AssistantRouteType.unknown:
+        await _voice.speak('لم أفهم الطلب بشكل كافٍ');
+        return const AIProcessResult(
+          handled: false,
+          routeType: AIHandledRouteType.unknown,
+          message: 'تعذر تحديد المسار المناسب للطلب',
+        );
 
-  // =================================
-  // HANDLE INTENT
-  // =================================
-
-  Future<void> _handleIntent(IntentModel intent) async {
-    switch (intent.action) {
-      // =================================
-      // GREETING
-      // =================================
-
-      case OfflineAIBrain.greeting:
-        await _voice.speak("مرحبا كيف يمكنني مساعدتك");
-        break;
-
-      // =================================
-      // باقي الأوامر كلها تروح للـ Engine
-      // =================================
-
-      case OfflineAIBrain.openApp:
-      case OfflineAIBrain.callContact:
-      case OfflineAIBrain.playMusic:
-      case OfflineAIBrain.youtubeSearch:
-      case OfflineAIBrain.webSearch:
-      case OfflineAIBrain.wifiControl:
-      case OfflineAIBrain.bluetoothControl:
-      case OfflineAIBrain.volumeControl:
-      case OfflineAIBrain.cameraControl:
-        await _engine.processCommand(_rebuildCommand(intent));
-        break;
-
-      // =================================
-      // UNKNOWN
-      // =================================
-
-      case OfflineAIBrain.unknown:
-        await _voice.speak("لم أفهم الأمر");
-        break;
-
-      // =================================
-      // DEFAULT
-      // =================================
-
-      default:
-        await _voice.speak("الأمر غير مدعوم");
-        break;
+      case AssistantRouteType.invalid:
+        return const AIProcessResult.ignored();
     }
   }
 
-  // =================================
-  // REBUILD COMMAND FROM INTENT
-  // (حل مؤقت عشان نستخدم الكود القديم)
-  // =================================
+  Future<AIProcessResult> _handleSmallTalk(String text) async {
+    final response = _generateSmallTalkResponse(text);
 
-  String _rebuildCommand(IntentModel intent) {
-    if (intent.query != null) return intent.query!;
-    if (intent.appName != null) return intent.appName!;
-    if (intent.contactName != null) return intent.contactName!;
+    await _voice.speak(response);
 
-    return "";
+    return AIProcessResult(
+      handled: true,
+      routeType: AIHandledRouteType.smallTalk,
+      message: response,
+    );
   }
 
-  // =================================
-  // NORMALIZE TEXT
-  // =================================
+  Future<AIProcessResult> _handleAppTaskRoute(
+    AssistantRouteResult routeResult,
+  ) async {
+    final planResult = routeResult.appTaskPlanResult;
+
+    if (planResult == null) {
+      await _voice.speak('تعذر تجهيز المهمة المطلوبة');
+      return const AIProcessResult(
+        handled: false,
+        routeType: AIHandledRouteType.appTask,
+        message: 'لا توجد خطة تنفيذ متاحة',
+      );
+    }
+
+    if (!planResult.isReady || planResult.task == null) {
+      final message = planResult.reason ?? 'تعذر تجهيز المهمة المطلوبة';
+
+      await _voice.speak(message);
+
+      return AIProcessResult(
+        handled: false,
+        routeType: AIHandledRouteType.appTask,
+        message: message,
+      );
+    }
+
+    final executionResult = await _executor.executePlan(planResult);
+
+    await _voice.speak(executionResult.message);
+
+    return AIProcessResult(
+      handled: executionResult.isSuccess,
+      routeType: AIHandledRouteType.appTask,
+      message: executionResult.message,
+    );
+  }
+
+  Future<AIProcessResult> _handleOnlineAiRoute(String text) async {
+    final result = await _onlineAiService.askQuestion(text);
+
+    if (!result.isSuccess || result.answer == null || result.answer!.isEmpty) {
+      await _voice.speak(result.message);
+
+      return AIProcessResult(
+        handled: false,
+        routeType: AIHandledRouteType.onlineAi,
+        message: result.message,
+      );
+    }
+
+    await _voice.speak(result.answer!);
+
+    return AIProcessResult(
+      handled: true,
+      routeType: AIHandledRouteType.onlineAi,
+      message: result.answer!,
+    );
+  }
+
+  String _generateSmallTalkResponse(String text) {
+    if (_containsAny(text, const ['ازيك', 'عامل ايه', 'اخبارك'])) {
+      return 'أنا بخير، كيف أساعدك؟';
+    }
+
+    if (_containsAny(text, const ['صباح الخير'])) {
+      return 'صباح النور';
+    }
+
+    if (_containsAny(text, const ['مساء الخير'])) {
+      return 'مساء النور';
+    }
+
+    if (_containsAny(
+      text,
+      const ['اهلا', 'أهلا', 'مرحبا', 'هاي', 'hello', 'hi'],
+    )) {
+      return 'أهلًا بك، كيف أساعدك؟';
+    }
+
+    return 'أنا معك';
+  }
+
+  bool _containsAny(String text, List<String> patterns) {
+    for (final pattern in patterns) {
+      if (text.contains(pattern)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
 
   String _normalize(String text) {
     return text
         .toLowerCase()
         .trim()
-        .replaceAll(",", "")
-        .replaceAll(".", "")
-        .replaceAll("؟", "")
-        .replaceAll("!", "")
-        .replaceAll("  ", " ");
+        .replaceAll(RegExp(r'[،,.!?؟]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
+}
+
+class AIProcessResult {
+  const AIProcessResult({
+    required this.handled,
+    required this.routeType,
+    required this.message,
+  });
+
+  const AIProcessResult.ignored()
+      : handled = false,
+        routeType = AIHandledRouteType.ignored,
+        message = '';
+
+  final bool handled;
+  final AIHandledRouteType routeType;
+  final String message;
+
+  bool get isIgnored => routeType == AIHandledRouteType.ignored;
+}
+
+enum AIHandledRouteType {
+  appTask,
+  onlineAi,
+  smallTalk,
+  unknown,
+  ignored,
 }

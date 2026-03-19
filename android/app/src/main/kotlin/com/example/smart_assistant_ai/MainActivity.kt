@@ -3,34 +3,61 @@ package com.example.smart_assistant_ai
 import android.content.Context
 import android.os.Build
 import android.telecom.TelecomManager
-import android.telephony.TelephonyManager
-
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
 
-    private val CHANNEL = "smart_assistant/call_control"
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val CALL_CONTROL_CHANNEL = "smart_assistant/call_control"
+        private const val MAIN_ENGINE_ID = "main_engine"
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "smart_assistant/call_control")
+
+        cacheMainEngine(flutterEngine)
+        setupCallControlChannel(flutterEngine)
+    }
+
+    private fun cacheMainEngine(flutterEngine: FlutterEngine) {
+        FlutterEngineCache.getInstance().put(MAIN_ENGINE_ID, flutterEngine)
+    }
+
+    private fun setupCallControlChannel(flutterEngine: FlutterEngine) {
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            CHANNEL
+            CALL_CONTROL_CHANNEL
         ).setMethodCallHandler { call, result ->
-
             when (call.method) {
-
                 "acceptCall" -> {
-                    answerCall()
-                    result.success(null)
+                    val accepted = answerCall()
+                    if (accepted) {
+                        result.success(true)
+                    } else {
+                        result.error(
+                            "ACCEPT_CALL_FAILED",
+                            "Unable to answer the incoming call.",
+                            null
+                        )
+                    }
                 }
 
                 "rejectCall" -> {
-                    rejectCall()
-                    result.success(null)
+                    val rejected = rejectCall()
+                    if (rejected) {
+                        result.success(true)
+                    } else {
+                        result.error(
+                            "REJECT_CALL_FAILED",
+                            "Rejecting calls is not supported with the current implementation.",
+                            null
+                        )
+                    }
                 }
 
                 else -> result.notImplemented()
@@ -42,16 +69,30 @@ class MainActivity : FlutterActivity() {
     // ANSWER CALL
     // ==========================
 
-    private fun answerCall() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val telecomManager =
-                    getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+    private fun answerCall(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            Log.w(TAG, "acceptRingingCall requires Android O or higher.")
+            return false
+        }
 
-                telecomManager.acceptRingingCall()
+        return try {
+            val telecomManager =
+                getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+
+            if (telecomManager == null) {
+                Log.e(TAG, "TelecomManager is unavailable.")
+                return false
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+
+            telecomManager.acceptRingingCall()
+            Log.i(TAG, "Incoming call answered successfully.")
+            true
+        } catch (securityException: SecurityException) {
+            Log.e(TAG, "Missing permission to answer phone calls.", securityException)
+            false
+        } catch (exception: Exception) {
+            Log.e(TAG, "Failed to answer incoming call.", exception)
+            false
         }
     }
 
@@ -59,16 +100,11 @@ class MainActivity : FlutterActivity() {
     // REJECT CALL
     // ==========================
 
-    private fun rejectCall() {
-        try {
-            val telephonyManager =
-                getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-
-            val method = telephonyManager.javaClass.getDeclaredMethod("endCall")
-            method.isAccessible = true
-            method.invoke(telephonyManager)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    private fun rejectCall(): Boolean {
+        Log.w(
+            TAG,
+            "Reject call is not implemented with a supported public Android API in this activity."
+        )
+        return false
     }
 }

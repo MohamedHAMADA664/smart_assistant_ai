@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
 class CosmicBackground extends StatelessWidget {
-  final Widget child;
+  const CosmicBackground({
+    super.key,
+    required this.child,
+  });
 
-  const CosmicBackground({super.key, required this.child});
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return DecoratedBox(
       decoration: const BoxDecoration(
         gradient: RadialGradient(
           center: Alignment(0, -0.3),
@@ -19,7 +22,17 @@ class CosmicBackground extends StatelessWidget {
           ],
         ),
       ),
-      child: child,
+      child: SizedBox.expand(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(
+              color: Colors.black.withValues(alpha: 0.08),
+            ),
+            child,
+          ],
+        ),
+      ),
     );
   }
 }

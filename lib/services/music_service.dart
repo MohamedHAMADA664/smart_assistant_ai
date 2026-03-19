@@ -2,41 +2,57 @@ import 'package:url_launcher/url_launcher.dart';
 
 class MusicService {
   // ================================
-  // PLAY MUSIC (YouTube Search)
+  // PLAY MUSIC
   // ================================
 
-  Future<void> playMusic(String query) async {
-    String searchUrl =
-        "https://www.youtube.com/results?search_query=${Uri.encodeComponent(query)}";
+  Future<bool> playMusic(String query) async {
+    final normalizedQuery = _normalizeQuery(query);
 
-    Uri uri = Uri.parse(searchUrl);
-
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      print("Error opening music search");
+    if (normalizedQuery.isEmpty) {
+      return false;
     }
+
+    return _openYoutubeSearch(normalizedQuery);
   }
 
   // ================================
-  // 🔥 PLAY YOUTUBE (حل المشكلة)
+  // PLAY YOUTUBE
   // ================================
 
-  Future<void> playYoutube(String query) async {
-    if (query.trim().isEmpty) {
-      print("Empty YouTube query");
-      return;
+  Future<bool> playYoutube(String query) async {
+    final normalizedQuery = _normalizeQuery(query);
+
+    if (normalizedQuery.isEmpty) {
+      return false;
     }
 
-    String searchUrl =
-        "https://www.youtube.com/results?search_query=${Uri.encodeComponent(query)}";
+    return _openYoutubeSearch(normalizedQuery);
+  }
 
-    Uri uri = Uri.parse(searchUrl);
+  // ================================
+  // HELPERS
+  // ================================
 
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      print("Error opening YouTube");
+  Future<bool> _openYoutubeSearch(String query) async {
+    final uri = Uri.parse(
+      'https://www.youtube.com/results?search_query=${Uri.encodeComponent(query)}',
+    );
+
+    try {
+      if (!await canLaunchUrl(uri)) {
+        return false;
+      }
+
+      return await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      return false;
     }
+  }
+
+  String _normalizeQuery(String query) {
+    return query.trim().replaceAll(RegExp(r'\s+'), ' ');
   }
 }

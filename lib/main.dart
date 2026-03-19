@@ -2,12 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'screens/home_screen.dart';
-import 'services/call_handler_service.dart'; // 🔥 جديد
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // إعداد خدمة الخلفية
+  await _initializeApp();
+
+  runApp(const SmartAssistantApp());
+}
+
+Future<void> _initializeApp() async {
+  _initializeForegroundTask();
+}
+
+void _initializeForegroundTask() {
   FlutterForegroundTask.init(
     androidNotificationOptions: AndroidNotificationOptions(
       channelId: 'assistant_service',
@@ -25,21 +33,16 @@ void main() async {
       allowWifiLock: true,
     ),
   );
-
-  // 🔥 تشغيل نظام استقبال المكالمات
-  CallHandlerService().init();
-
-  runApp(const SmartAssistant());
 }
 
-class SmartAssistant extends StatelessWidget {
-  const SmartAssistant({super.key});
+class SmartAssistantApp extends StatelessWidget {
+  const SmartAssistantApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: "Smart Assistant",
+      title: 'Smart Assistant',
       theme: ThemeData.dark(),
       home: const HomeScreen(),
     );

@@ -1,14 +1,67 @@
 class PhoneLookupService {
-  static final Map<String, Map<String, dynamic>> _communityDatabase = {
-    "01012345678": {"name": "شركة شحن", "spam": false},
-    "01198765432": {"name": "مكالمات تسويق", "spam": true}
+  static const Map<String, PhoneLookupRecord> _communityDatabase = {
+    '01012345678': PhoneLookupRecord(
+      name: 'شركة شحن',
+      isSpam: false,
+    ),
+    '01198765432': PhoneLookupRecord(
+      name: 'مكالمات تسويق',
+      isSpam: true,
+    ),
   };
 
-  Map<String, dynamic>? lookupNumber(String phone) {
-    if (_communityDatabase.containsKey(phone)) {
-      return _communityDatabase[phone];
+  // ================================
+  // LOOKUP NUMBER
+  // ================================
+
+  Future<Map<String, dynamic>?> lookupNumber(String phone) async {
+    final normalizedPhone = _normalizePhone(phone);
+
+    if (normalizedPhone.isEmpty) {
+      return null;
     }
 
-    return null;
+    final record = _communityDatabase[normalizedPhone];
+    if (record == null) {
+      return null;
+    }
+
+    return {
+      'phone': normalizedPhone,
+      'name': record.name,
+      'spam': record.isSpam,
+    };
   }
+
+  // ================================
+  // OPTIONAL TYPED LOOKUP
+  // ================================
+
+  Future<PhoneLookupRecord?> lookupRecord(String phone) async {
+    final normalizedPhone = _normalizePhone(phone);
+
+    if (normalizedPhone.isEmpty) {
+      return null;
+    }
+
+    return _communityDatabase[normalizedPhone];
+  }
+
+  // ================================
+  // HELPERS
+  // ================================
+
+  String _normalizePhone(String phone) {
+    return phone.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+}
+
+class PhoneLookupRecord {
+  const PhoneLookupRecord({
+    required this.name,
+    required this.isSpam,
+  });
+
+  final String name;
+  final bool isSpam;
 }

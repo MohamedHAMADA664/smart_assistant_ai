@@ -1,238 +1,362 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 import 'package:logger/logger.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 import '../ai/ai_controller.dart';
 import '../ai/wake_word_service.dart';
-import '../core/system_controller.dart'; // 🔥 جديد
-import 'voice_response_service.dart';
+import '../core/system_controller.dart';
 
 class VoiceListenerService {
-  final SpeechToText _speech = SpeechToText();
-  final WakeWordService _wakeWordService = WakeWordService();
-  final AIController _aiController = AIController();
-  final VoiceResponseService _voice = VoiceResponseService();
-  final SystemController _systemController = SystemController(); // 🔥 مهم
+  VoiceListenerService({
+    SpeechToText? speechToText,
+    WakeWordService? wakeWordService,
+    SystemController? systemController,
+    AIController? aiController,
+    Logger? logger,
+  })  : _speech = speechToText ?? SpeechToText(),
+        _wakeWordService = wakeWordService ?? WakeWordService(),
+        _systemController = systemController ?? SystemController(),
+        _aiController = aiController ?? AIController(),
+        _logger = logger ?? Logger();
 
-  final Logger _logger = Logger();
+  final SpeechToText _speech;
+  final WakeWordService _wakeWordService;
+  final SystemController _systemController;
+  final AIController _aiController;
+  final Logger _logger;
 
-  static const MethodChannel _callChannel =
+  static const MethodChannel _callEventsChannel =
       MethodChannel('smart_assistant/call_events');
 
-  static const MethodChannel _callControlChannel =
-      MethodChannel('smart_assistant/call_control');
-
+  bool _isInitialized = false;
   bool _isListening = false;
+  bool _isRestarting = false;
   bool _wakeWordActivated = false;
-
   bool _isWaitingCallResponse = false;
 
-  String _lastCommand = "";
-  DateTime _lastWakeTime = DateTime.now();
+  String _lastProcessedText = '';
+  DateTime? _lastWakeTime;
+  Timer? _restartDebounceTimer;
 
-  bool _isRestarting = false;
+  static const Duration _wakeSessionTimeout = Duration(seconds: 10);
+  static const Duration _restartDelay = Duration(milliseconds: 450);
 
-  // =====================================
+  bool get isInitialized => _isInitialized;
+  bool get isListening => _isListening;
+  bool get isWakeWordActivated => _wakeWordActivated;
+  bool get isWaitingCallResponse => _isWaitingCallResponse;
+
+  // =========================
   // INITIALIZE
-  // =====================================
+  // =========================
 
   Future<void> initialize() async {
+    if (_isInitialized) {
+      _logger.d('VoiceListenerService already initialized');
+      return;
+    }
+
     try {
       await _wakeWordService.initialize();
-      await _systemController.initialize(); // 🔥 مهم
+      await _systemController.initialize();
 
-      _callChannel.setMethodCallHandler(_handleCallEvents);
+      _callEventsChannel.setMethodCallHandler(_handleNativeCallEvent);
 
-      bool available = await _speech.initialize(
-        onStatus: (status) {
-          _logger.d("Speech status: $status");
-
-          if (status == "done") {
-            _isListening = false;
-            _restartListening();
-          }
-        },
-        onError: (error) {
-          _logger.e("Speech error: $error");
-
-          _isListening = false;
-          _restartListening();
-        },
+      final available = await _speech.initialize(
+        onStatus: _onSpeechStatus,
+        onError: _onSpeechError,
       );
 
-      if (available) {
-        _logger.i("Speech initialized successfully");
-        startListening();
-      } else {
-        _logger.e("Speech not available");
+      if (!available) {
+        _logger.e('Speech recognition is not available on this device');
+        return;
       }
-    } catch (e) {
-      _logger.e("Initialization error: $e");
+
+      _isInitialized = true;
+      _logger.i('VoiceListenerService initialized successfully');
+    } catch (e, stackTrace) {
+      _logger.e(
+        'Failed to initialize VoiceListenerService',
+        error: e,
+        stackTrace: stackTrace,
+      );
     }
   }
 
-  // =====================================
-  // HANDLE CALL EVENTS 🔥
-  // =====================================
-
-  Future<void> _handleCallEvents(MethodCall call) async {
-    if (call.method == "incomingCall") {
-      String number = call.arguments ?? "رقم غير معروف";
-
-      _logger.i("Incoming call: $number");
-
-      _isWaitingCallResponse = true;
-
-      await _systemController.onIncomingCall(number); // 🔥 ربط جديد
-    }
-  }
-
-  // =====================================
+  // =========================
   // START LISTENING
-  // =====================================
+  // =========================
 
   Future<void> startListening() async {
-    if (_isListening) return;
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    if (!_isInitialized) {
+      _logger.w('Start listening aborted because initialization failed');
+      return;
+    }
+
+    if (_isListening) {
+      return;
+    }
 
     try {
       _isListening = true;
 
       await _speech.listen(
-        onResult: (result) async {
-          try {
-            String text = _normalize(result.recognizedWords);
-
-            if (text.isEmpty) return;
-
-            _logger.d("Heard: $text");
-
-            // =====================================
-            // 🔥 CALL RESPONSE MODE
-            // =====================================
-
-            if (_isWaitingCallResponse) {
-              await _handleCallResponse(text);
-              _isWaitingCallResponse = false;
-
-              await stopListening();
-              return;
-            }
-
-            // ===============================
-            // WAKE WORD
-            // ===============================
-
-            if (!_wakeWordActivated) {
-              if (_wakeWordService.detectWakeWord(text)) {
-                _wakeWordActivated = true;
-                _lastWakeTime = DateTime.now();
-
-                _logger.i("Wake word detected");
-              }
-              return;
-            }
-
-            // ===============================
-            // TIMEOUT
-            // ===============================
-
-            if (DateTime.now().difference(_lastWakeTime).inSeconds > 10) {
-              _wakeWordActivated = false;
-              return;
-            }
-
-            // ===============================
-            // DUPLICATE
-            // ===============================
-
-            if (text == _lastCommand) return;
-
-            _lastCommand = text;
-
-            // ===============================
-            // EXECUTE (🔥 NEW ARCHITECTURE)
-            // ===============================
-
-            await _systemController.handleCommand(text);
-
-            _wakeWordActivated = false;
-          } catch (e) {
-            _logger.e("Error in onResult: $e");
-          }
-        },
+        onResult: _onSpeechResult,
         listenOptions: SpeechListenOptions(
           listenMode: ListenMode.dictation,
           partialResults: true,
           cancelOnError: false,
         ),
       );
-    } catch (e) {
-      _logger.e("Start listening error: $e");
+
+      _logger.i('Voice listening started');
+    } catch (e, stackTrace) {
       _isListening = false;
+      _logger.e(
+        'Failed to start listening',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      _scheduleRestart();
     }
   }
 
-  // =====================================
-  // HANDLE CALL RESPONSE (Fallback)
-  // =====================================
-
-  Future<void> _handleCallResponse(String text) async {
-    text = text.toLowerCase();
-
-    if (text.contains("رد") || text.contains("answer")) {
-      await _callControlChannel.invokeMethod('acceptCall');
-      _logger.i("Call accepted via voice");
-    }
-
-    if (text.contains("ارفض") ||
-        text.contains("اقفل") ||
-        text.contains("reject")) {
-      await _callControlChannel.invokeMethod('rejectCall');
-      _logger.i("Call rejected via voice");
-    }
-  }
-
-  // =====================================
-  // RESTART
-  // =====================================
-
-  Future<void> _restartListening() async {
-    if (_isRestarting) return;
-
-    _isRestarting = true;
-
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    _isRestarting = false;
-
-    startListening();
-  }
-
-  // =====================================
-  // STOP
-  // =====================================
+  // =========================
+  // STOP LISTENING
+  // =========================
 
   Future<void> stopListening() async {
-    if (!_isListening) return;
+    _restartDebounceTimer?.cancel();
+
+    if (!_isListening) {
+      return;
+    }
 
     try {
       await _speech.stop();
+    } catch (e, stackTrace) {
+      _logger.e(
+        'Failed to stop listening',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    } finally {
       _isListening = false;
-    } catch (e) {
-      _logger.e("Stop listening error: $e");
+      _logger.i('Voice listening stopped');
     }
   }
 
-  // =====================================
-  // NORMALIZE
-  // =====================================
+  // =========================
+  // DISPOSE
+  // =========================
+
+  Future<void> dispose() async {
+    _restartDebounceTimer?.cancel();
+    await stopListening();
+    _callEventsChannel.setMethodCallHandler(null);
+  }
+
+  // =========================
+  // SPEECH CALLBACKS
+  // =========================
+
+  void _onSpeechStatus(String status) {
+    _logger.d('Speech status: $status');
+
+    if (status == 'done' || status == 'notListening') {
+      _isListening = false;
+      _scheduleRestart();
+    }
+  }
+
+  void _onSpeechError(dynamic error) {
+    _logger.e('Speech error: $error');
+    _isListening = false;
+    _scheduleRestart();
+  }
+
+  Future<void> _onSpeechResult(dynamic result) async {
+    try {
+      final text = _normalize(result.recognizedWords as String? ?? '');
+
+      if (text.isEmpty) {
+        return;
+      }
+
+      _logger.d('Recognized: $text');
+
+      if (_isDuplicatePartial(text)) {
+        return;
+      }
+
+      // =========================
+      // CALL RESPONSE MODE
+      // =========================
+      if (_isWaitingCallResponse) {
+        await _systemController.handleCommand(text);
+
+        if (_looksLikeCallDecision(text)) {
+          _isWaitingCallResponse = false;
+          _clearWakeSession();
+        }
+
+        return;
+      }
+
+      // =========================
+      // WAKE WORD DETECTION
+      // =========================
+      if (!_wakeWordActivated) {
+        if (_wakeWordService.detectWakeWord(text)) {
+          _activateWakeSession();
+        }
+        return;
+      }
+
+      // =========================
+      // WAKE SESSION TIMEOUT
+      // =========================
+      if (_isWakeSessionExpired()) {
+        _logger.d('Wake session expired');
+        _clearWakeSession();
+        return;
+      }
+
+      // =========================
+      // NORMAL COMMAND ROUTING
+      // =========================
+      final aiResult = await _aiController.processVoice(text);
+
+      if (aiResult.handled) {
+        _logger.i(
+          'Command handled by AIController via route: ${aiResult.routeType.name}',
+        );
+      } else if (!aiResult.isIgnored) {
+        _logger.d('AIController could not fully handle the command');
+      }
+
+      _clearWakeSession();
+    } catch (e, stackTrace) {
+      _logger.e(
+        'Error while processing speech result',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  // =========================
+  // CALL EVENTS
+  // =========================
+
+  Future<void> _handleNativeCallEvent(MethodCall call) async {
+    if (call.method != 'incomingCall') {
+      _logger.w('Unknown native call event: ${call.method}');
+      return;
+    }
+
+    final number = (call.arguments as String?)?.trim();
+    final incomingNumber =
+        (number == null || number.isEmpty) ? 'رقم غير معروف' : number;
+
+    _logger.i('Incoming call event received: $incomingNumber');
+
+    _isWaitingCallResponse = true;
+    _clearWakeSession();
+
+    await _systemController.onIncomingCall(incomingNumber);
+  }
+
+  // =========================
+  // HELPERS
+  // =========================
+
+  void _activateWakeSession() {
+    _wakeWordActivated = true;
+    _lastWakeTime = DateTime.now();
+    _lastProcessedText = '';
+    _logger.i('Wake word detected');
+  }
+
+  void _clearWakeSession() {
+    _wakeWordActivated = false;
+    _lastWakeTime = null;
+    _lastProcessedText = '';
+  }
+
+  bool _isWakeSessionExpired() {
+    if (_lastWakeTime == null) {
+      return true;
+    }
+
+    return DateTime.now().difference(_lastWakeTime!) > _wakeSessionTimeout;
+  }
+
+  bool _isDuplicatePartial(String text) {
+    if (text == _lastProcessedText) {
+      return true;
+    }
+
+    _lastProcessedText = text;
+    return false;
+  }
+
+  bool _looksLikeCallDecision(String text) {
+    return _containsAny(
+      text,
+      const [
+        'رد',
+        'اقبل',
+        'ارفض',
+        'اقفل',
+        'answer',
+        'accept',
+        'reject',
+      ],
+    );
+  }
+
+  bool _containsAny(String text, List<String> values) {
+    for (final value in values) {
+      if (text.contains(value)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  void _scheduleRestart() {
+    if (_isRestarting) {
+      return;
+    }
+
+    _restartDebounceTimer?.cancel();
+    _restartDebounceTimer = Timer(_restartDelay, () async {
+      if (_isListening) {
+        return;
+      }
+
+      _isRestarting = true;
+      try {
+        await startListening();
+      } finally {
+        _isRestarting = false;
+      }
+    });
+  }
 
   String _normalize(String text) {
     return text
         .toLowerCase()
         .trim()
-        .replaceAll(",", "")
-        .replaceAll(".", "")
-        .replaceAll(RegExp(r'\s+'), " ");
+        .replaceAll(RegExp(r'[،,.!?؟]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 }

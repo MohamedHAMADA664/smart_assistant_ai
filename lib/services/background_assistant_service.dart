@@ -4,20 +4,36 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'voice_listener_service.dart';
 
-// =====================================
-// BACKGROUND SERVICE CONTROLLER
-// =====================================
-
 class BackgroundAssistantService {
+  // ===============================
+  // START SERVICE
+  // ===============================
+
   static Future<void> startService() async {
+    final isRunning = await FlutterForegroundTask.isRunningService;
+
+    if (isRunning) {
+      return;
+    }
+
     await FlutterForegroundTask.startService(
-      notificationTitle: "المساعد الذكي يعمل",
-      notificationText: "المساعد يستمع للأوامر الصوتية",
+      notificationTitle: 'المساعد الذكي يعمل',
+      notificationText: 'المساعد يستمع للأوامر الصوتية',
       callback: startCallback,
     );
   }
 
+  // ===============================
+  // STOP SERVICE
+  // ===============================
+
   static Future<void> stopService() async {
+    final isRunning = await FlutterForegroundTask.isRunningService;
+
+    if (!isRunning) {
+      return;
+    }
+
     await FlutterForegroundTask.stopService();
   }
 }
@@ -39,25 +55,40 @@ void startCallback() {
 class AssistantTaskHandler extends TaskHandler {
   final VoiceListenerService _voiceListener = VoiceListenerService();
 
+  bool _started = false;
+
   // ===============================
   // SERVICE START
   // ===============================
 
   @override
   Future<void> onStart(DateTime timestamp, SendPort? sendPort) async {
-    await _voiceListener.initialize();
+    if (_started) {
+      return;
+    }
 
-    await _voiceListener.startListening();
+    try {
+      await _voiceListener.initialize();
+      await _voiceListener.startListening();
+      _started = true;
+    } catch (_) {
+      _started = false;
+    }
   }
 
   // ===============================
-  // REPEAT EVENT (REQUIRED)
+  // REPEAT EVENT
   // ===============================
 
   @override
   Future<void> onRepeatEvent(DateTime timestamp, SendPort? sendPort) async {
-    // يمكن وضع مهام دورية هنا لاحقاً
-    // مثل فحص حالة الميكروفون أو إعادة تشغيل الاستماع
+    try {
+      if (!_voiceListener.isListening) {
+        await _voiceListener.startListening();
+      }
+    } catch (_) {
+      // Ignore periodic recovery errors silently for now.
+    }
   }
 
   // ===============================
@@ -66,7 +97,13 @@ class AssistantTaskHandler extends TaskHandler {
 
   @override
   Future<void> onDestroy(DateTime timestamp, SendPort? sendPort) async {
-    await _voiceListener.stopListening();
+    try {
+      await _voiceListener.dispose();
+    } catch (_) {
+      // Ignore shutdown errors silently for now.
+    } finally {
+      _started = false;
+    }
   }
 
   // ===============================
@@ -75,7 +112,7 @@ class AssistantTaskHandler extends TaskHandler {
 
   @override
   void onNotificationButtonPressed(String id) {
-    // يمكن إضافة أزرار للتحكم لاحقاً
+    // Reserved for future notification actions.
   }
 
   // ===============================
@@ -84,6 +121,6 @@ class AssistantTaskHandler extends TaskHandler {
 
   @override
   void onNotificationPressed() {
-    FlutterForegroundTask.launchApp("/");
+    FlutterForegroundTask.launchApp();
   }
 }

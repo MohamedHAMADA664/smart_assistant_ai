@@ -1,63 +1,57 @@
 import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class MemoryAI {
-  // ===============================
-  // INTERNAL MEMORY STORAGE
-  // ===============================
+  static const String _storageKey = 'assistant_memory';
+  static const String _historyKey = 'assistant_history';
+  static const int _maxHistoryItems = 50;
 
-  final Map<String, String> _memory = {};
-  final List<String> _history = []; // 🔥 جديد (تتبع الأوامر)
+  final Map<String, String> _memory = <String, String>{};
+  final List<String> _history = <String>[];
 
-  static const String _storageKey = "assistant_memory";
-  static const String _historyKey = "assistant_history"; // 🔥 جديد
-
+  SharedPreferences? _prefs;
   bool _initialized = false;
 
   // ===============================
-  // INITIALIZE MEMORY
+  // INITIALIZE
   // ===============================
 
   Future<void> initialize() async {
-    if (_initialized) return;
-
-    final prefs = await SharedPreferences.getInstance();
-
-    // 🔹 Load memory
-    String? savedMemory = prefs.getString(_storageKey);
-
-    if (savedMemory != null) {
-      Map<String, dynamic> decoded = jsonDecode(savedMemory);
-
-      decoded.forEach((key, value) {
-        _memory[key] = value.toString();
-      });
+    if (_initialized) {
+      return;
     }
 
-    // 🔹 Load history 🔥
-    List<String>? savedHistory = prefs.getStringList(_historyKey);
+    _prefs = await SharedPreferences.getInstance();
 
-    if (savedHistory != null) {
-      _history.addAll(savedHistory);
-    }
+    await _loadMemory();
+    await _loadHistory();
 
     _initialized = true;
   }
 
+  Future<void> _ensureInitialized() async {
+    if (!_initialized) {
+      await initialize();
+    }
+  }
+
   // ===============================
-  // 🔥 SAVE QUICK COMMAND (حل المشكلة)
+  // SAVE QUICK COMMAND / HISTORY
   // ===============================
 
   Future<void> save(String text) async {
-    text = text.trim();
+    await _ensureInitialized();
 
-    if (text.isEmpty) return;
+    final normalizedText = text.trim();
+    if (normalizedText.isEmpty) {
+      return;
+    }
 
-    _history.add(text);
+    _history.add(normalizedText);
 
-    // limit history size 🔥
-    if (_history.length > 50) {
-      _history.removeAt(0);
+    if (_history.length > _maxHistoryItems) {
+      _history.removeRange(0, _history.length - _maxHistoryItems);
     }
 
     await _saveHistory();
@@ -68,34 +62,47 @@ class MemoryAI {
   // ===============================
 
   Future<void> remember(String key, String value) async {
-    key = key.toLowerCase().trim();
-    value = value.trim();
+    await _ensureInitialized();
 
-    if (key.isEmpty || value.isEmpty) return;
+    final normalizedKey = _normalizeKey(key);
+    final normalizedValue = value.trim();
 
-    _memory[key] = value;
+    if (normalizedKey.isEmpty || normalizedValue.isEmpty) {
+      return;
+    }
 
-    await _saveToStorage();
+    _memory[normalizedKey] = normalizedValue;
+    await _saveMemory();
   }
 
   // ===============================
   // GET MEMORY
   // ===============================
 
-  String? recall(String key) {
-    key = key.toLowerCase().trim();
+  Future<String?> recall(String key) async {
+    await _ensureInitialized();
 
-    return _memory[key];
+    final normalizedKey = _normalizeKey(key);
+    if (normalizedKey.isEmpty) {
+      return null;
+    }
+
+    return _memory[normalizedKey];
   }
 
   // ===============================
   // CHECK IF MEMORY EXISTS
   // ===============================
 
-  bool hasMemory(String key) {
-    key = key.toLowerCase().trim();
+  Future<bool> hasMemory(String key) async {
+    await _ensureInitialized();
 
-    return _memory.containsKey(key);
+    final normalizedKey = _normalizeKey(key);
+    if (normalizedKey.isEmpty) {
+      return false;
+    }
+
+    return _memory.containsKey(normalizedKey);
   }
 
   // ===============================
@@ -103,11 +110,15 @@ class MemoryAI {
   // ===============================
 
   Future<void> forget(String key) async {
-    key = key.toLowerCase().trim();
+    await _ensureInitialized();
 
-    _memory.remove(key);
+    final normalizedKey = _normalizeKey(key);
+    if (normalizedKey.isEmpty) {
+      return;
+    }
 
-    await _saveToStorage();
+    _memory.remove(normalizedKey);
+    await _saveMemory();
   }
 
   // ===============================
@@ -115,49 +126,95 @@ class MemoryAI {
   // ===============================
 
   Future<void> clearMemory() async {
+    await _ensureInitialized();
+
     _memory.clear();
     _history.clear();
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_storageKey);
-    await prefs.remove(_historyKey);
+    await _prefs!.remove(_storageKey);
+    await _prefs!.remove(_historyKey);
   }
 
   // ===============================
   // GET ALL MEMORY
   // ===============================
 
-  Map<String, String> getAllMemory() {
-    return Map.from(_memory);
+  Future<Map<String, String>> getAllMemory() async {
+    await _ensureInitialized();
+    return Map<String, String>.from(_memory);
   }
 
   // ===============================
-  // 🔥 GET HISTORY
+  // GET HISTORY
   // ===============================
 
-  List<String> getHistory() {
-    return List.from(_history);
+  Future<List<String>> getHistory() async {
+    await _ensureInitialized();
+    return List<String>.from(_history);
   }
 
   // ===============================
-  // SAVE MEMORY TO DEVICE
+  // INTERNAL LOADERS
   // ===============================
 
-  Future<void> _saveToStorage() async {
-    final prefs = await SharedPreferences.getInstance();
+  Future<void> _loadMemory() async {
+    final savedMemory = _prefs?.getString(_storageKey);
+    if (savedMemory == null || savedMemory.trim().isEmpty) {
+      return;
+    }
 
-    String encoded = jsonEncode(_memory);
+    final decoded = jsonDecode(savedMemory);
+    if (decoded is! Map<String, dynamic>) {
+      return;
+    }
 
-    await prefs.setString(_storageKey, encoded);
+    _memory.clear();
+    decoded.forEach((key, value) {
+      final normalizedKey = _normalizeKey(key);
+      final normalizedValue = value.toString().trim();
+
+      if (normalizedKey.isNotEmpty && normalizedValue.isNotEmpty) {
+        _memory[normalizedKey] = normalizedValue;
+      }
+    });
+  }
+
+  Future<void> _loadHistory() async {
+    final savedHistory = _prefs?.getStringList(_historyKey);
+    if (savedHistory == null || savedHistory.isEmpty) {
+      return;
+    }
+
+    _history
+      ..clear()
+      ..addAll(
+        savedHistory
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty),
+      );
+
+    if (_history.length > _maxHistoryItems) {
+      _history.removeRange(0, _history.length - _maxHistoryItems);
+    }
   }
 
   // ===============================
-  // 🔥 SAVE HISTORY
+  // INTERNAL SAVERS
   // ===============================
+
+  Future<void> _saveMemory() async {
+    await _prefs!.setString(_storageKey, jsonEncode(_memory));
+  }
 
   Future<void> _saveHistory() async {
-    final prefs = await SharedPreferences.getInstance();
+    await _prefs!.setStringList(_historyKey, List<String>.from(_history));
+  }
 
-    await prefs.setStringList(_historyKey, _history);
+  // ===============================
+  // HELPERS
+  // ===============================
+
+  String _normalizeKey(String key) {
+    return key.toLowerCase().trim();
   }
 }

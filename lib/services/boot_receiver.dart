@@ -2,20 +2,31 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'background_assistant_service.dart';
 
-// =====================================
-// BOOT RECEIVER SERVICE
-// =====================================
-
-class BootReceiver {
-  // =====================================
+class BootReceiverService {
+  // ===============================
   // START ASSISTANT AFTER BOOT
-  // =====================================
+  // ===============================
 
-  static Future<void> startAssistantAfterBoot() async {
-    bool isRunning = await FlutterForegroundTask.isRunningService;
+  Future<bool> startAssistantAfterBoot() async {
+    try {
+      final isRunning = await FlutterForegroundTask.isRunningService;
 
-    if (!isRunning) {
+      if (isRunning) {
+        return true;
+      }
+
       await BackgroundAssistantService.startService();
+      return true;
+    } catch (_) {
+      return false;
     }
+  }
+
+  // ===============================
+  // ENSURE SERVICE RUNNING
+  // ===============================
+
+  Future<bool> ensureAssistantRunning() async {
+    return startAssistantAfterBoot();
   }
 }

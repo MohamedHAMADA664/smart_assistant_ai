@@ -1,92 +1,80 @@
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:android_intent_plus/flag.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:volume_controller/volume_controller.dart';
-import 'package:url_launcher/url_launcher.dart'; // 🔥 جديد
 
 class SystemControlService {
+  SystemControlService({
+    VolumeController? volumeController,
+  }) : _volumeController = volumeController ?? VolumeController();
+
+  final VolumeController _volumeController;
+
   // ================================
   // WIFI SETTINGS
   // ================================
 
-  Future<void> openWifiSettings() async {
-    const intent = AndroidIntent(
-      action: 'android.settings.WIFI_SETTINGS',
-      flags: <int>[Flag.FLAG_ACTIVITY_NEW_TASK],
-    );
-
-    await intent.launch();
+  Future<bool> openWifiSettings() {
+    return _launchAndroidSettings('android.settings.WIFI_SETTINGS');
   }
 
   // ================================
   // BLUETOOTH SETTINGS
   // ================================
 
-  Future<void> openBluetoothSettings() async {
-    const intent = AndroidIntent(
-      action: 'android.settings.BLUETOOTH_SETTINGS',
-      flags: <int>[Flag.FLAG_ACTIVITY_NEW_TASK],
-    );
-
-    await intent.launch();
+  Future<bool> openBluetoothSettings() {
+    return _launchAndroidSettings('android.settings.BLUETOOTH_SETTINGS');
   }
 
   // ================================
   // MOBILE DATA SETTINGS
   // ================================
 
-  Future<void> openMobileDataSettings() async {
-    const intent = AndroidIntent(
-      action: 'android.settings.DATA_ROAMING_SETTINGS',
-      flags: <int>[Flag.FLAG_ACTIVITY_NEW_TASK],
-    );
-
-    await intent.launch();
+  Future<bool> openMobileDataSettings() {
+    return _launchAndroidSettings('android.settings.DATA_ROAMING_SETTINGS');
   }
 
   // ================================
   // LOCATION SETTINGS
   // ================================
 
-  Future<void> openLocationSettings() async {
-    const intent = AndroidIntent(
-      action: 'android.settings.LOCATION_SOURCE_SETTINGS',
-      flags: <int>[Flag.FLAG_ACTIVITY_NEW_TASK],
-    );
-
-    await intent.launch();
+  Future<bool> openLocationSettings() {
+    return _launchAndroidSettings('android.settings.LOCATION_SOURCE_SETTINGS');
   }
 
   // ================================
   // GENERAL SETTINGS
   // ================================
 
-  Future<void> openSystemSettings() async {
-    const intent = AndroidIntent(
-      action: 'android.settings.SETTINGS',
-      flags: <int>[Flag.FLAG_ACTIVITY_NEW_TASK],
-    );
-
-    await intent.launch();
+  Future<bool> openSystemSettings() {
+    return _launchAndroidSettings('android.settings.SETTINGS');
   }
 
   // ================================
-  // 🔥 WEB SEARCH (حل المشكلة)
+  // WEB SEARCH
   // ================================
 
-  Future<void> webSearch(String query) async {
-    if (query.trim().isEmpty) {
-      print("Empty search query");
-      return;
+  Future<bool> webSearch(String query) async {
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty) {
+      return false;
     }
 
-    final url = "https://www.google.com/search?q=${Uri.encodeComponent(query)}";
+    final uri = Uri.parse(
+      'https://www.google.com/search?q=${Uri.encodeComponent(normalizedQuery)}',
+    );
 
-    final uri = Uri.parse(url);
+    try {
+      if (!await canLaunchUrl(uri)) {
+        return false;
+      }
 
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      print("Error opening browser");
+      return await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      return false;
     }
   }
 
@@ -95,42 +83,46 @@ class SystemControlService {
   // ================================
 
   Future<void> increaseVolume() async {
-    double volume = await VolumeController().getVolume();
-
-    volume += 0.1;
-
-    if (volume > 1) {
-      volume = 1;
-    }
-
-    VolumeController().setVolume(volume);
+    final currentVolume = await _volumeController.getVolume();
+    final newVolume = (currentVolume + 0.1).clamp(0.0, 1.0);
+    await _volumeController.setVolume(newVolume);
   }
 
   Future<void> decreaseVolume() async {
-    double volume = await VolumeController().getVolume();
-
-    volume -= 0.1;
-
-    if (volume < 0) {
-      volume = 0;
-    }
-
-    VolumeController().setVolume(volume);
+    final currentVolume = await _volumeController.getVolume();
+    final newVolume = (currentVolume - 0.1).clamp(0.0, 1.0);
+    await _volumeController.setVolume(newVolume);
   }
 
   Future<void> muteVolume() async {
-    VolumeController().setVolume(0);
+    await _volumeController.setVolume(0.0);
   }
 
   // ================================
-  // ALIAS FUNCTIONS (FIX ERRORS)
+  // ALIASES
   // ================================
 
-  Future<void> volumeUp() async {
-    await increaseVolume();
-  }
+  Future<void> volumeUp() => increaseVolume();
 
-  Future<void> volumeDown() async {
-    await decreaseVolume();
+  Future<void> volumeDown() => decreaseVolume();
+
+  // ================================
+  // HELPERS
+  // ================================
+
+  Future<bool> _launchAndroidSettings(String action) async {
+    const flags = <int>[Flag.FLAG_ACTIVITY_NEW_TASK];
+
+    final intent = AndroidIntent(
+      action: action,
+      flags: flags,
+    );
+
+    try {
+      await intent.launch();
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }

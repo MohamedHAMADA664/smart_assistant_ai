@@ -1,22 +1,15 @@
-import 'package:flutter_background_service/flutter_background_service.dart';
+import 'background_assistant_service.dart';
 
+@Deprecated(
+  'Use BackgroundAssistantService instead. '
+  'This class is kept temporarily for backward compatibility only.',
+)
 class BackgroundService {
   static Future<void> initializeService() async {
-    final service = FlutterBackgroundService();
-
-    await service.configure(
-      androidConfiguration: AndroidConfiguration(
-        onStart: onStart,
-        autoStart: true,
-        isForegroundMode: true,
-      ),
-      iosConfiguration: IosConfiguration(),
-    );
+    await BackgroundAssistantService.startService();
   }
-}
 
-void onStart(ServiceInstance service) {
-  service.on("stopService").listen((event) {
-    service.stopSelf();
-  });
+  static Future<void> stopService() async {
+    await BackgroundAssistantService.stopService();
+  }
 }
