@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -20,11 +21,11 @@
         android:label="smart_assistant_ai">
 
         <service
-            <service
-    android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
-    android:description="@string/app_name"
-    android:exported="false"
-    android:foregroundServiceType="microphone" />
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:description="@string/app_name"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <receiver
             android:name=".CallReceiver"
             android:enabled="true"
