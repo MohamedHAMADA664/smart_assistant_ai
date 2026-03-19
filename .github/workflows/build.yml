@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build APK (Release)
+    name: Build APK (Debug)
     runs-on: ubuntu-latest
 
     steps:
@@ -69,12 +69,12 @@ jobs:
       - name: Analyze (non-blocking)
         run: flutter analyze || true
 
-      - name: Build Release APK
-        run: flutter build apk --release
+      - name: Build APK
+        run: flutter build apk --debug
 
-      - name: Upload Release APK artifact
+      - name: Upload APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: app-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
