@@ -19,7 +19,34 @@ class AIController {
   final OnlineAiService _onlineAiService;
   final VoiceResponseService _voice;
 
+  bool _isInitialized = false;
+
+  // =========================
+  // INITIALIZE
+  // =========================
+
+  Future<void> initialize() async {
+    if (_isInitialized) {
+      return;
+    }
+
+    await _voice.initialize();
+    _isInitialized = true;
+  }
+
+  Future<void> _ensureInitialized() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+  }
+
+  // =========================
+  // MAIN ENTRY
+  // =========================
+
   Future<AIProcessResult> processVoice(String speechText) async {
+    await _ensureInitialized();
+
     final cleanText = _normalize(speechText);
 
     if (cleanText.isEmpty) {
@@ -39,17 +66,16 @@ class AIController {
         return _handleOnlineAiRoute(cleanText);
 
       case AssistantRouteType.unknown:
-        await _voice.speak('لم أفهم الطلب بشكل كافٍ');
-        return const AIProcessResult(
-          handled: false,
-          routeType: AIHandledRouteType.unknown,
-          message: 'تعذر تحديد المسار المناسب للطلب',
-        );
+        return _handleUnknown(cleanText);
 
       case AssistantRouteType.invalid:
         return const AIProcessResult.ignored();
     }
   }
+
+  // =========================
+  // SMALL TALK
+  // =========================
 
   Future<AIProcessResult> _handleSmallTalk(String text) async {
     final response = _generateSmallTalkResponse(text);
@@ -62,6 +88,10 @@ class AIController {
       message: response,
     );
   }
+
+  // =========================
+  // APP TASKS
+  // =========================
 
   Future<AIProcessResult> _handleAppTaskRoute(
     AssistantRouteResult routeResult,
@@ -100,6 +130,10 @@ class AIController {
     );
   }
 
+  // =========================
+  // ONLINE AI
+  // =========================
+
   Future<AIProcessResult> _handleOnlineAiRoute(String text) async {
     final result = await _onlineAiService.askQuestion(text);
 
@@ -121,6 +155,26 @@ class AIController {
       message: result.answer!,
     );
   }
+
+  // =========================
+  // UNKNOWN / FALLBACK
+  // =========================
+
+  Future<AIProcessResult> _handleUnknown(String text) async {
+    final fallbackResponse = _generateFallbackResponse(text);
+
+    await _voice.speak(fallbackResponse);
+
+    return AIProcessResult(
+      handled: false,
+      routeType: AIHandledRouteType.unknown,
+      message: fallbackResponse,
+    );
+  }
+
+  // =========================
+  // LOCAL SMALL TALK RESPONSES
+  // =========================
 
   String _generateSmallTalkResponse(String text) {
     if (_containsAny(text, const ['ازيك', 'عامل ايه', 'اخبارك'])) {
@@ -144,6 +198,22 @@ class AIController {
 
     return 'أنا معك';
   }
+
+  // =========================
+  // FALLBACK RESPONSES
+  // =========================
+
+  String _generateFallbackResponse(String text) {
+    if (_containsAny(text, const ['افتح', 'شغل', 'ابعت', 'اتصل'])) {
+      return 'فهمت الطلب جزئيًا لكن ما زلت أحتاج استكمال ربط التنفيذ';
+    }
+
+    return 'لم أفهم الطلب بشكل كافٍ';
+  }
+
+  // =========================
+  // HELPERS
+  // =========================
 
   bool _containsAny(String text, List<String> patterns) {
     for (final pattern in patterns) {
