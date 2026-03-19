@@ -13,6 +13,8 @@ class OnlineAiService {
   final AssistantProfileService _assistantProfileService;
   final OnlineAiGateway? _gateway;
 
+  bool get hasGateway => _gateway != null;
+
   // ================================
   // CHECK IF ONLINE AI IS ENABLED
   // ================================
@@ -20,6 +22,28 @@ class OnlineAiService {
   Future<bool> isEnabled() async {
     final profile = await _assistantProfileService.loadProfile();
     return profile.onlineAiEnabled;
+  }
+
+  // ================================
+  // CHECK IF ONLINE AI CAN ANSWER
+  // ================================
+
+  Future<bool> canAnswerOnline(String text) async {
+    final enabled = await isEnabled();
+    if (!enabled) {
+      return false;
+    }
+
+    if (_gateway == null) {
+      return false;
+    }
+
+    final normalizedText = _normalize(text);
+    if (normalizedText.isEmpty) {
+      return false;
+    }
+
+    return true;
   }
 
   // ================================
@@ -38,7 +62,9 @@ class OnlineAiService {
       return false;
     }
 
-    return _looksLikeGeneralQuestion(normalizedText);
+    return _looksLikeGeneralQuestion(normalizedText) ||
+        _looksLikeCreativeRequest(normalizedText) ||
+        _looksLikeKnowledgeRequest(normalizedText);
   }
 
   // ================================
@@ -77,7 +103,7 @@ class OnlineAiService {
       final response = await _gateway!.generateResponse(
         OnlineAiRequest(
           prompt: normalizedText,
-          context: conversationContext?.trim(),
+          context: _normalizeOptionalContext(conversationContext),
         ),
       );
 
@@ -93,8 +119,8 @@ class OnlineAiService {
         status: OnlineAiStatus.success,
         message: 'تم الحصول على رد من الذكاء عبر الإنترنت',
         answer: normalizedAnswer,
-        source: response.source,
-        model: response.model,
+        source: _normalizeOptionalField(response.source),
+        model: _normalizeOptionalField(response.model),
       );
     } on TimeoutException {
       return const OnlineAiResult(
@@ -119,12 +145,20 @@ class OnlineAiService {
       const [
         'مين',
         'ما هو',
+        'ما هي',
         'ماهي',
         'اشرح',
         'فسر',
         'عرفني',
         'احكيلي',
+        'احكي لي',
         'قوللي',
+        'قول لي',
+        'قل لي',
+        'ليه',
+        'لماذا',
+        'كيف',
+        'ازاي',
         'why',
         'what',
         'who',
@@ -132,6 +166,7 @@ class OnlineAiService {
         'where',
         'how',
         'explain',
+        'tell me',
       ],
     )) {
       return true;
@@ -141,7 +176,11 @@ class OnlineAiService {
       return true;
     }
 
-    if (_containsAny(
+    return false;
+  }
+
+  bool _looksLikeCreativeRequest(String text) {
+    return _containsAny(
       text,
       const [
         'اكتبلي',
@@ -151,14 +190,45 @@ class OnlineAiService {
         'اقترح',
         'ساعدني في',
         'هاتلي فكرة',
+        'هات لي فكرة',
         'اعمل لي',
+        'اكتب رسالة',
+        'اكتب ايميل',
+        'اكتب منشور',
+        'اكتب بوست',
+        'write',
+        'summarize',
+        'suggest',
+        'draft',
       ],
-    )) {
-      return true;
-    }
-
-    return false;
+    );
   }
+
+  bool _looksLikeKnowledgeRequest(String text) {
+    return _containsAny(
+      text,
+      const [
+        'معلومة',
+        'معلومات',
+        'بحث',
+        'ابحث عن',
+        'ابحثلي عن',
+        'ابحث لي عن',
+        'خبر',
+        'اخبار',
+        'أخبار',
+        'موضوع عن',
+        'تفاصيل عن',
+        'search for',
+        'news about',
+        'information about',
+      ],
+    );
+  }
+
+  // ================================
+  // HELPERS
+  // ================================
 
   bool _containsAny(String text, List<String> patterns) {
     for (final pattern in patterns) {
@@ -171,7 +241,37 @@ class OnlineAiService {
   }
 
   String _normalize(String text) {
-    return text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    return text
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[،,.!?؟]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String? _normalizeOptionalContext(String? text) {
+    if (text == null) {
+      return null;
+    }
+
+    final normalized = text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    return normalized;
+  }
+
+  String? _normalizeOptionalField(String? text) {
+    if (text == null) {
+      return null;
+    }
+
+    final normalized = text.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    return normalized;
   }
 }
 
@@ -219,6 +319,11 @@ class OnlineAiResult {
   final String? model;
 
   bool get isSuccess => status == OnlineAiStatus.success;
+  bool get isRecoverable =>
+      status == OnlineAiStatus.timeout || status == OnlineAiStatus.failed;
+  bool get isUnavailable =>
+      status == OnlineAiStatus.disabled ||
+      status == OnlineAiStatus.notConfigured;
 }
 
 enum OnlineAiStatus {
