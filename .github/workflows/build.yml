@@ -35,15 +35,24 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Patch device_apps namespace
+      - name: Patch old Android plugins
         run: |
-          FILE="$HOME/.pub-cache/hosted/pub.dev/device_apps-2.2.0/android/build.gradle"
-          if [ -f "$FILE" ]; then
-            grep -q "namespace" "$FILE" || sed -i "/android {/a\    namespace 'fr.g123k.deviceapps'" "$FILE"
+          DEVICE_APPS_FILE="$HOME/.pub-cache/hosted/pub.dev/device_apps-2.2.0/android/build.gradle"
+          NOTIFICATION_FILE="$HOME/.pub-cache/hosted/pub.dev/notification_listener_service-0.0.3/android/build.gradle"
+
+          if [ -f "$DEVICE_APPS_FILE" ]; then
+            grep -q "namespace" "$DEVICE_APPS_FILE" || sed -i "/android {/a\    namespace 'fr.g123k.deviceapps'" "$DEVICE_APPS_FILE"
             echo "Patched device_apps build.gradle"
-            cat "$FILE"
           else
             echo "device_apps build.gradle not found"
+            exit 1
+          fi
+
+          if [ -f "$NOTIFICATION_FILE" ]; then
+            grep -q "namespace" "$NOTIFICATION_FILE" || sed -i "/android {/a\    namespace 'com.shounakmulay.notification_listener_service'" "$NOTIFICATION_FILE"
+            echo "Patched notification_listener_service build.gradle"
+          else
+            echo "notification_listener_service build.gradle not found"
             exit 1
           fi
 
