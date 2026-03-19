@@ -8,28 +8,58 @@ class AppControlService {
     'whatsapp business': 'com.whatsapp.w4b',
     'واتساب بيزنس': 'com.whatsapp.w4b',
     'واتساب بزنس': 'com.whatsapp.w4b',
+
     'youtube': 'com.google.android.youtube',
     'يوتيوب': 'com.google.android.youtube',
+
     'facebook': 'com.facebook.katana',
     'فيسبوك': 'com.facebook.katana',
+
     'instagram': 'com.instagram.android',
     'انستجرام': 'com.instagram.android',
     'تطبيق الانستا': 'com.instagram.android',
+
     'tiktok': 'com.zhiliaoapp.musically',
     'تيك توك': 'com.zhiliaoapp.musically',
+
     'telegram': 'org.telegram.messenger',
     'تليجرام': 'org.telegram.messenger',
+
     'maps': 'com.google.android.apps.maps',
+    'google maps': 'com.google.android.apps.maps',
     'خرائط': 'com.google.android.apps.maps',
+    'خرائط جوجل': 'com.google.android.apps.maps',
+
     'gmail': 'com.google.android.gm',
     'جيميل': 'com.google.android.gm',
+
     'chrome': 'com.android.chrome',
     'كروم': 'com.android.chrome',
+
     'google': 'com.google.android.googlequicksearchbox',
     'جوجل': 'com.google.android.googlequicksearchbox',
+
     'play store': 'com.android.vending',
     'المتجر': 'com.android.vending',
     'بلاي ستور': 'com.android.vending',
+
+    'phone': 'com.google.android.dialer',
+    'dialer': 'com.google.android.dialer',
+    'الهاتف': 'com.google.android.dialer',
+    'اتصال': 'com.google.android.dialer',
+
+    'messages': 'com.google.android.apps.messaging',
+    'sms': 'com.google.android.apps.messaging',
+    'الرسائل': 'com.google.android.apps.messaging',
+    'رسائل': 'com.google.android.apps.messaging',
+
+    'youtube music': 'com.google.android.apps.youtube.music',
+    'يوتيوب ميوزيك': 'com.google.android.apps.youtube.music',
+    'music': 'com.google.android.apps.youtube.music',
+    'موسيقى': 'com.google.android.apps.youtube.music',
+
+    'spotify': 'com.spotify.music',
+    'سبوتيفاي': 'com.spotify.music',
   };
 
   final List<Application> _installedApps = <Application>[];
@@ -127,13 +157,21 @@ class AppControlService {
 
       Application? exactMatch;
       Application? partialMatch;
+      Application? packageMatch;
 
       for (final app in _installedApps) {
         final appName = _normalize(app.appName);
+        final packageName = _normalize(app.packageName);
 
         if (appName == normalizedName) {
           exactMatch = app;
           break;
+        }
+
+        if (packageMatch == null &&
+            (packageName.contains(normalizedName) ||
+                normalizedName.contains(packageName))) {
+          packageMatch = app;
         }
 
         if (partialMatch == null && _isPartialMatch(appName, normalizedName)) {
@@ -141,7 +179,7 @@ class AppControlService {
         }
       }
 
-      final targetApp = exactMatch ?? partialMatch;
+      final targetApp = exactMatch ?? partialMatch ?? packageMatch;
 
       if (targetApp == null) {
         return null;
@@ -178,8 +216,10 @@ class AppControlService {
 
     for (final app in _installedApps) {
       final appName = _normalize(app.appName);
+      final packageName = _normalize(app.packageName);
 
-      if (_isPartialMatch(appName, normalizedQuery)) {
+      if (_isPartialMatch(appName, normalizedQuery) ||
+          packageName.contains(normalizedQuery)) {
         results.add(
           ResolvedApp(
             packageName: app.packageName,
@@ -232,11 +272,33 @@ class AppControlService {
   }
 
   bool _isPartialMatch(String appName, String spokenName) {
-    return appName.contains(spokenName) || spokenName.contains(appName);
+    return appName.contains(spokenName) ||
+        spokenName.contains(appName) ||
+        _containsAllWords(appName, spokenName) ||
+        _containsAllWords(spokenName, appName);
+  }
+
+  bool _containsAllWords(String source, String query) {
+    final words = query.split(' ').where((word) => word.trim().isNotEmpty);
+    if (words.isEmpty) {
+      return false;
+    }
+
+    for (final word in words) {
+      if (!source.contains(word)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   String _normalize(String text) {
-    return text.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
+    return text
+        .toLowerCase()
+        .trim()
+        .replaceAll(RegExp(r'[^\w\u0600-\u06FF\s]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 }
 
