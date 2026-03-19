@@ -7,7 +7,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 import '../ai/ai_controller.dart';
 import '../ai/wake_word_service.dart';
 import '../core/system_controller.dart';
-import 'voice_response_service.dart'; // ✅ إضافة
+import 'voice_response_service.dart';
 
 class VoiceListenerService {
   VoiceListenerService({
@@ -16,19 +16,19 @@ class VoiceListenerService {
     SystemController? systemController,
     AIController? aiController,
     Logger? logger,
-    VoiceResponseService? voiceResponseService, // ✅ إضافة
+    VoiceResponseService? voiceResponseService,
   })  : _speech = speechToText ?? SpeechToText(),
         _wakeWordService = wakeWordService ?? WakeWordService(),
         _systemController = systemController ?? SystemController(),
         _aiController = aiController ?? AIController(),
-        _voice = voiceResponseService ?? VoiceResponseService(), // ✅ إضافة
+        _voice = voiceResponseService ?? VoiceResponseService(),
         _logger = logger ?? Logger();
 
   final SpeechToText _speech;
   final WakeWordService _wakeWordService;
   final SystemController _systemController;
   final AIController _aiController;
-  final VoiceResponseService _voice; // ✅ إضافة
+  final VoiceResponseService _voice;
   final Logger _logger;
 
   static const MethodChannel _callEventsChannel =
@@ -39,13 +39,15 @@ class VoiceListenerService {
   bool _isRestarting = false;
   bool _wakeWordActivated = false;
   bool _isWaitingCallResponse = false;
+  bool _isTemporarilyPausedForSpeech = false;
 
   String _lastProcessedText = '';
   DateTime? _lastWakeTime;
   Timer? _restartDebounceTimer;
 
   static const Duration _wakeSessionTimeout = Duration(seconds: 10);
-  static const Duration _restartDelay = Duration(milliseconds: 450);
+  static const Duration _restartDelay = Duration(milliseconds: 700);
+  static const Duration _resumeAfterSpeakDelay = Duration(milliseconds: 500);
 
   bool get isInitialized => _isInitialized;
   bool get isListening => _isListening;
@@ -65,7 +67,7 @@ class VoiceListenerService {
     try {
       await _wakeWordService.initialize();
       await _systemController.initialize();
-      await _voice.initialize(); // ✅ مهم جدًا
+      await _voice.initialize();
 
       _callEventsChannel.setMethodCallHandler(_handleNativeCallEvent);
 
@@ -105,6 +107,7 @@ class VoiceListenerService {
     }
 
     if (_isListening) {
+      _logger.d('Start listening skipped because listener is already active');
       return;
     }
 
@@ -113,11 +116,12 @@ class VoiceListenerService {
 
       await _speech.listen(
         onResult: _onSpeechResult,
-        listenOptions: SpeechListenOptions(
-          listenMode: ListenMode.dictation,
-          partialResults: true,
-          cancelOnError: false,
-        ),
+        listenFor: const Duration(minutes: 10),
+        pauseFor: const Duration(seconds: 5),
+        partialResults: true,
+        cancelOnError: false,
+        listenMode: ListenMode.dictation,
+        localeId: 'ar_EG',
       );
 
       _logger.i('Voice listening started');
@@ -176,6 +180,12 @@ class VoiceListenerService {
 
     if (status == 'done' || status == 'notListening') {
       _isListening = false;
+
+      if (_isTemporarilyPausedForSpeech) {
+        _logger.d('Speech listener stopped temporarily for assistant speech');
+        return;
+      }
+
       _scheduleRestart();
     }
   }
@@ -183,6 +193,12 @@ class VoiceListenerService {
   void _onSpeechError(dynamic error) {
     _logger.e('Speech error: $error');
     _isListening = false;
+
+    if (_isTemporarilyPausedForSpeech) {
+      _logger.d('Speech error ignored because listener is temporarily paused');
+      return;
+    }
+
     _scheduleRestart();
   }
 
@@ -204,9 +220,9 @@ class VoiceListenerService {
       // CALL RESPONSE MODE
       // =========================
       if (_isWaitingCallResponse) {
-        await _systemController.handleCommand(text);
+        final commandResult = await _systemController.handleCommand(text);
 
-        if (_looksLikeCallDecision(text)) {
+        if (commandResult.handled || _looksLikeCallDecision(text)) {
           _isWaitingCallResponse = false;
           _clearWakeSession();
         }
@@ -215,7 +231,7 @@ class VoiceListenerService {
       }
 
       // =========================
-      // WAKE WORD DETECTION (FIXED)
+      // WAKE WORD DETECTION
       // =========================
       if (!_wakeWordActivated) {
         if (_wakeWordService.detectWakeWord(text)) {
@@ -224,19 +240,9 @@ class VoiceListenerService {
           _activateWakeSession();
 
           if (commandOnly.isNotEmpty) {
-            final aiResult = await _aiController.processVoice(commandOnly);
-
-            if (aiResult.handled) {
-              _logger.i(
-                'Command handled immediately after wake word via route: ${aiResult.routeType.name}',
-              );
-            } else if (!aiResult.isIgnored) {
-              _logger.d('AIController could not fully handle the command');
-            }
-
-            _clearWakeSession();
+            await _handleAssistantCommand(commandOnly);
           } else {
-            await _voice.speak('سمعاك'); // ✅ رد صوتي
+            await _speakAndResume('سمعاك');
           }
 
           return;
@@ -257,6 +263,24 @@ class VoiceListenerService {
       // =========================
       // NORMAL COMMAND ROUTING
       // =========================
+      await _handleAssistantCommand(text);
+    } catch (e, stackTrace) {
+      _logger.e(
+        'Error while processing speech result',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  // =========================
+  // COMMAND HANDLING
+  // =========================
+
+  Future<void> _handleAssistantCommand(String text) async {
+    await _pauseListeningForAssistantSpeech();
+
+    try {
       final aiResult = await _aiController.processVoice(text);
 
       if (aiResult.handled) {
@@ -266,14 +290,9 @@ class VoiceListenerService {
       } else if (!aiResult.isIgnored) {
         _logger.d('AIController could not fully handle the command');
       }
-
+    } finally {
       _clearWakeSession();
-    } catch (e, stackTrace) {
-      _logger.e(
-        'Error while processing speech result',
-        error: e,
-        stackTrace: stackTrace,
-      );
+      await _resumeListeningAfterAssistantSpeech();
     }
   }
 
@@ -296,8 +315,64 @@ class VoiceListenerService {
     _isWaitingCallResponse = true;
     _clearWakeSession();
 
-    await _voice.speak('مكالمة واردة من $incomingNumber هل تريد الرد أم الرفض'); // ✅ صوت
-    await _systemController.onIncomingCall(incomingNumber);
+    await _pauseListeningForAssistantSpeech();
+
+    try {
+      await _voice.speak(
+        'مكالمة واردة من $incomingNumber. هل تريد الرد أم الرفض؟',
+      );
+      await _systemController.onIncomingCall(incomingNumber);
+    } finally {
+      await _resumeListeningAfterAssistantSpeech();
+    }
+  }
+
+  // =========================
+  // SPEAK / PAUSE HELPERS
+  // =========================
+
+  Future<void> _speakAndResume(String text) async {
+    await _pauseListeningForAssistantSpeech();
+
+    try {
+      await _voice.speak(text);
+    } finally {
+      await _resumeListeningAfterAssistantSpeech();
+    }
+  }
+
+  Future<void> _pauseListeningForAssistantSpeech() async {
+    _isTemporarilyPausedForSpeech = true;
+
+    try {
+      if (_isListening) {
+        await _speech.stop();
+      }
+    } catch (e, stackTrace) {
+      _logger.e(
+        'Failed to pause listening before assistant speech',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      _isListening = false;
+    }
+  }
+
+  Future<void> _resumeListeningAfterAssistantSpeech() async {
+    await Future<void>.delayed(_resumeAfterSpeakDelay);
+
+    _isTemporarilyPausedForSpeech = false;
+
+    if (!_isInitialized) {
+      return;
+    }
+
+    if (_isListening) {
+      return;
+    }
+
+    await startListening();
   }
 
   // =========================
@@ -305,17 +380,22 @@ class VoiceListenerService {
   // =========================
 
   String _removeWakeWord(String text) {
-    final wakeWord = _wakeWordService.getWakeWord().toLowerCase().trim();
-
     var cleaned = text;
 
-    if (wakeWord.isNotEmpty) {
-      cleaned = cleaned.replaceAll(wakeWord, ' ');
-    }
-
-    const defaults = ['يا nada', 'nada', 'assistant'];
-
-    for (final word in defaults) {
+    for (final word in const [
+      'يا siri',
+      'siri',
+      'يا nada',
+      'nada',
+      'يا مساعدي',
+      'مساعدي',
+      'يا مساعد',
+      'مساعد',
+      'assistant',
+      'hey assistant',
+      'ok assistant',
+      'يا',
+    ]) {
       cleaned = cleaned.replaceAll(word.toLowerCase(), ' ');
     }
 
@@ -378,7 +458,7 @@ class VoiceListenerService {
   }
 
   void _scheduleRestart() {
-    if (_isRestarting) {
+    if (_isRestarting || _isTemporarilyPausedForSpeech) {
       return;
     }
 
@@ -401,7 +481,7 @@ class VoiceListenerService {
     return text
         .toLowerCase()
         .trim()
-        .replaceAll(RegExp(r'[،,.!?؟]'), '')
+        .replaceAll(RegExp(r'[،,.!?؟]'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ');
   }
 }
