@@ -32,17 +32,26 @@ jobs:
       - name: Disable analytics
         run: flutter config --no-analytics
 
-      - name: Flutter doctor
-        run: flutter doctor -v
-
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Build release APK
+      - name: Patch device_apps namespace
+        run: |
+          FILE="$HOME/.pub-cache/hosted/pub.dev/device_apps-2.2.0/android/build.gradle"
+          if [ -f "$FILE" ]; then
+            grep -q "namespace" "$FILE" || sed -i "/android {/a\    namespace 'fr.g123k.deviceapps'" "$FILE"
+            echo "Patched device_apps build.gradle"
+            cat "$FILE"
+          else
+            echo "device_apps build.gradle not found"
+            exit 1
+          fi
+
+      - name: Build APK
         run: flutter build apk --release
 
-      - name: Upload release APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: smart-assistant-release-apk
+          name: app-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
