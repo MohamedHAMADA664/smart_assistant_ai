@@ -12,6 +12,8 @@ class SystemController {
   final VoiceResponseService _voice;
 
   bool _isCallModeActive = false;
+  String? _lastIncomingNumber;
+  bool _isInitialized = false;
 
   bool get isCallModeActive => _isCallModeActive;
 
@@ -20,8 +22,18 @@ class SystemController {
   // =========================
 
   Future<void> initialize() async {
-    // Reserved for future app-level initialization if needed.
-    // Do not initialize VoiceListenerService here to avoid circular dependency.
+    if (_isInitialized) {
+      return;
+    }
+
+    await _voice.initialize();
+    _isInitialized = true;
+  }
+
+  Future<void> _ensureInitialized() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
   }
 
   // =========================
@@ -29,6 +41,8 @@ class SystemController {
   // =========================
 
   Future<SystemCommandResult> handleCommand(String text) async {
+    await _ensureInitialized();
+
     final normalizedText = _normalizeText(text);
 
     if (normalizedText.isEmpty) {
@@ -51,6 +65,7 @@ class SystemController {
       await _callControl.acceptCall();
       await _voice.speak('تم الرد على المكالمة');
       _isCallModeActive = false;
+      _lastIncomingNumber = null;
       return const SystemCommandResult.handled('call_accepted');
     }
 
@@ -58,9 +73,11 @@ class SystemController {
       await _callControl.rejectCall();
       await _voice.speak('تم رفض المكالمة');
       _isCallModeActive = false;
+      _lastIncomingNumber = null;
       return const SystemCommandResult.handled('call_rejected');
     }
 
+    await _voice.speak('قل رد أو ارفض');
     return const SystemCommandResult.notHandled();
   }
 
@@ -69,8 +86,14 @@ class SystemController {
   // =========================
 
   Future<void> onIncomingCall(String number) async {
+    await _ensureInitialized();
+
     _isCallModeActive = true;
-    await _voice.speak('مكالمة واردة، قل رد أو ارفض');
+    _lastIncomingNumber = number.trim().isEmpty ? 'رقم غير معروف' : number.trim();
+
+    await _voice.speak(
+      'مكالمة واردة من $_lastIncomingNumber. قل رد أو ارفض',
+    );
   }
 
   // =========================
@@ -78,14 +101,21 @@ class SystemController {
   // =========================
 
   String _normalizeText(String text) {
-    return text.trim().toLowerCase();
+    return text
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[،,.!?؟]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 
   bool _isAcceptCommand(String text) {
     return text.contains('رد') ||
         text.contains('اترد') ||
         text.contains('اقبل') ||
-        text.contains('استقبل');
+        text.contains('استقبل') ||
+        text.contains('وافق') ||
+        text.contains('answer') ||
+        text.contains('accept');
   }
 
   bool _isRejectCommand(String text) {
@@ -93,11 +123,14 @@ class SystemController {
         text.contains('رفض') ||
         text.contains('اقفل') ||
         text.contains('انهي') ||
-        text.contains('سكر');
+        text.contains('سكر') ||
+        text.contains('reject') ||
+        text.contains('decline');
   }
 
   void resetCallMode() {
     _isCallModeActive = false;
+    _lastIncomingNumber = null;
   }
 }
 
