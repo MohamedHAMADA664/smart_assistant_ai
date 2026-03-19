@@ -85,17 +85,17 @@ class SystemControlService {
   Future<void> increaseVolume() async {
     final currentVolume = await _volumeController.getVolume();
     final newVolume = (currentVolume + 0.1).clamp(0.0, 1.0);
-    _volumeController.setVolume(newVolume);
+    await _volumeController.setVolume(newVolume);
   }
 
   Future<void> decreaseVolume() async {
     final currentVolume = await _volumeController.getVolume();
     final newVolume = (currentVolume - 0.1).clamp(0.0, 1.0);
-    _volumeController.setVolume(newVolume);
+    await _volumeController.setVolume(newVolume);
   }
 
   Future<void> muteVolume() async {
-    _volumeController.setVolume(0.0);
+    await _volumeController.setVolume(0.0);
   }
 
   // ================================

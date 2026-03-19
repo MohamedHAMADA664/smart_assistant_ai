@@ -240,7 +240,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Column(
                     children: [
                       DropdownButtonFormField<String>(
-                        value: _voiceLanguage,
+                        initialValue: _voiceLanguage,
                         decoration: const InputDecoration(
                           labelText: 'لغة الصوت',
                           border: OutlineInputBorder(),
