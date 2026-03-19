@@ -47,7 +47,10 @@ class SettingsService {
     await _ensureInitialized();
 
     final normalizedWord = _normalizeText(word);
-    await _prefs!.setString(wakeWordKey, normalizedWord);
+    await _prefs!.setString(
+      wakeWordKey,
+      normalizedWord.isEmpty ? _defaultWakeWord : normalizedWord,
+    );
   }
 
   Future<String> getWakeWord() async {
@@ -76,7 +79,10 @@ class SettingsService {
     await _ensureInitialized();
 
     final normalizedName = _normalizeText(name);
-    await _prefs!.setString(assistantNameKey, normalizedName);
+    await _prefs!.setString(
+      assistantNameKey,
+      normalizedName.isEmpty ? _defaultAssistantName : normalizedName,
+    );
   }
 
   Future<String> getAssistantName() async {
@@ -104,11 +110,7 @@ class SettingsService {
   Future<void> saveVoiceLanguage(String languageCode) async {
     await _ensureInitialized();
 
-    final normalizedLanguage = _normalizeText(languageCode);
-    if (normalizedLanguage.isEmpty) {
-      return;
-    }
-
+    final normalizedLanguage = _normalizeLanguage(languageCode);
     await _prefs!.setString(voiceLanguageKey, normalizedLanguage);
   }
 
@@ -116,13 +118,7 @@ class SettingsService {
     await _ensureInitialized();
 
     final storedLanguage = _prefs!.getString(voiceLanguageKey);
-    final normalizedLanguage = _normalizeText(storedLanguage);
-
-    if (normalizedLanguage.isEmpty) {
-      return _defaultVoiceLanguage;
-    }
-
-    return normalizedLanguage;
+    return _normalizeLanguage(storedLanguage);
   }
 
   // ================================
@@ -132,14 +128,15 @@ class SettingsService {
   Future<void> saveSpeechRate(double rate) async {
     await _ensureInitialized();
 
-    final normalizedRate = rate.clamp(0.1, 1.0);
+    final normalizedRate = _normalizeSpeechRate(rate);
     await _prefs!.setDouble(speechRateKey, normalizedRate);
   }
 
   Future<double> getSpeechRate() async {
     await _ensureInitialized();
 
-    return _prefs!.getDouble(speechRateKey) ?? _defaultSpeechRate;
+    final storedRate = _prefs!.getDouble(speechRateKey);
+    return _normalizeSpeechRate(storedRate);
   }
 
   // ================================
@@ -211,5 +208,20 @@ class SettingsService {
 
   String _normalizeText(String? text) {
     return (text ?? '').trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String _normalizeLanguage(String? languageCode) {
+    final normalized = _normalizeText(languageCode).toLowerCase();
+
+    if (normalized == 'ar' || normalized == 'en') {
+      return normalized;
+    }
+
+    return _defaultVoiceLanguage;
+  }
+
+  double _normalizeSpeechRate(double? rate) {
+    final value = rate ?? _defaultSpeechRate;
+    return value.clamp(0.1, 1.0).toDouble();
   }
 }
