@@ -11,91 +11,91 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
 
-companion object {  
-    private const val TAG = "MainActivity"  
-    private const val CALL_CONTROL_CHANNEL = "smart_assistant/call_control"  
-    private const val MAIN_ENGINE_ID = "main_engine"  
-}  
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val CALL_CONTROL_CHANNEL = "smart_assistant/call_control"
+        private const val MAIN_ENGINE_ID = "main_engine"
+    }
 
-override fun configureFlutterEngine(flutterEngine: FlutterEngine) {  
-    super.configureFlutterEngine(flutterEngine)  
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        cacheMainEngine(flutterEngine)
+        setupCallControlChannel(flutterEngine)
+    }
 
-    cacheMainEngine(flutterEngine)  
-    setupCallControlChannel(flutterEngine)  
-}  
+    private fun cacheMainEngine(flutterEngine: FlutterEngine) {
+        FlutterEngineCache.getInstance().put(MAIN_ENGINE_ID, flutterEngine)
+    }
 
-private fun cacheMainEngine(flutterEngine: FlutterEngine) {  
-    FlutterEngineCache.getInstance().put(MAIN_ENGINE_ID, flutterEngine)  
-}  
+    private fun setupCallControlChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            CALL_CONTROL_CHANNEL
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "acceptCall" -> {
+                    val accepted = answerCall()
+                    if (accepted) {
+                        result.success(true)
+                    } else {
+                        result.error(
+                            "ACCEPT_CALL_FAILED",
+                            "Unable to answer the incoming call.",
+                            null
+                        )
+                    }
+                }
 
-private fun setupCallControlChannel(flutterEngine: FlutterEngine) {  
-    MethodChannel(  
-        flutterEngine.dartExecutor.binaryMessenger,  
-        CALL_CONTROL_CHANNEL  
-    ).setMethodCallHandler { call, result ->  
-        when (call.method) {  
-            "acceptCall" -> {  
-                val accepted = answerCall()  
-                if (accepted) {  
-                    result.success(true)  
-                } else {  
-                    result.error(  
-                        "ACCEPT_CALL_FAILED",  
-                        "Unable to answer the incoming call.",  
-                        null  
-                    )  
-                }  
-            }  
+                "rejectCall" -> {
+                    val rejected = rejectCall()
+                    if (rejected) {
+                        result.success(true)
+                    } else {
+                        result.error(
+                            "REJECT_CALL_FAILED",
+                            "Rejecting calls is not supported with the current implementation.",
+                            null
+                        )
+                    }
+                }
 
-            "rejectCall" -> {  
-                val rejected = rejectCall()  
-                if (rejected) {  
-                    result.success(true)  
-                } else {  
-                    result.error(  
-                        "REJECT_CALL_FAILED",  
-                        "Rejecting calls is not supported with the current implementation.",  
-                        null  
-                    )  
-                }  
-            }  
+                else -> result.notImplemented()
+            }
+        }
+    }
 
-            else -> result.notImplemented()  
-        }  
-    }  
-}  
+    private fun answerCall(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            Log.w(TAG, "acceptRingingCall requires Android O or higher.")
+            return false
+        }
 
-private fun answerCall(): Boolean {  
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {  
-        Log.w(TAG, "acceptRingingCall requires Android O or higher.")  
-        return false  
-    }  
+        return try {
+            val telecomManager =
+                getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
 
-    return try {  
-        val telecomManager =  
-            getSystemService(Context.TELECOM_SERVICE) as? TelecomManager  
+            if (telecomManager == null) {
+                Log.e(TAG, "TelecomManager is unavailable.")
+                false
+            } else {
+                telecomManager.acceptRingingCall()
+                Log.i(TAG, "Incoming call answered successfully.")
+                true
+            }
+        } catch (securityException: SecurityException) {
+            Log.e(TAG, "Missing permission to answer phone calls.", securityException)
+            false
+        } catch (exception: Exception) {
+            Log.e(TAG, "Failed to answer incoming call.", exception)
+            false
+        }
+    }
 
-        if (telecomManager == null) {  
-            Log.e(TAG, "TelecomManager is unavailable.")  
-            return false  
-        }  
-
-        telecomManager.acceptRingingCall()  
-        Log.i(TAG, "Incoming call answered successfully.")  
-        true  
-    } catch (securityException: SecurityException) {  
-        Log.e(TAG, "Missing permission to answer phone calls.", securityException)  
-        false  
-    } catch (exception: Exception) {  
-        Log.e(TAG, "Failed to answer incoming call.", exception)  
-        false  
-    }  
-}  
-
-private fun rejectCall(): Boolean {  
-    Log.w(  
-        TAG,  
-        "Reject call is not implemented with a supported public Android API in this activity."  
-    )  
-    return false  
+    private fun rejectCall(): Boolean {
+        Log.w(
+            TAG,
+            "Reject call is not implemented with a supported public Android API in this activity."
+        )
+        return false
+    }
 }
