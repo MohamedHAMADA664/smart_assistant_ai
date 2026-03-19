@@ -83,6 +83,12 @@ jobs:
       - name: Analyze (non-blocking)
         run: flutter analyze || true
 
+      - name: Show Gradle version
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew --version
+
       - name: Build Release APK with Gradle
         run: |
           cd android
