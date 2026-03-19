@@ -1,6 +1,7 @@
 import '../services/app_task_executor_service.dart';
 import '../services/assistant_router_service.dart';
 import '../services/online_ai_service.dart';
+import '../services/openai_gateway.dart';
 import '../services/voice_response_service.dart';
 
 class AIController {
@@ -11,7 +12,10 @@ class AIController {
     VoiceResponseService? voiceResponseService,
   })  : _router = assistantRouterService ?? AssistantRouterService(),
         _executor = appTaskExecutorService ?? AppTaskExecutorService(),
-        _onlineAiService = onlineAiService ?? OnlineAiService(),
+        _onlineAiService = onlineAiService ??
+            OnlineAiService(
+              gateway: OpenAiGateway(),
+            ),
         _voice = voiceResponseService ?? VoiceResponseService();
 
   final AssistantRouterService _router;
@@ -60,7 +64,7 @@ class AIController {
         return _handleSmallTalk(cleanText);
 
       case AssistantRouteType.appTask:
-        return _handleAppTaskRoute(routeResult);
+        return _handleAppTaskRoute(routeResult, cleanText);
 
       case AssistantRouteType.onlineAi:
         return _handleOnlineAiRoute(cleanText);
@@ -95,20 +99,23 @@ class AIController {
 
   Future<AIProcessResult> _handleAppTaskRoute(
     AssistantRouteResult routeResult,
+    String originalText,
   ) async {
     final planResult = routeResult.appTaskPlanResult;
 
     if (planResult == null) {
-      await _voice.speak('تعذر تجهيز المهمة المطلوبة');
-      return const AIProcessResult(
+      final fallback = _generateFallbackResponse(originalText);
+      await _voice.speak(fallback);
+
+      return AIProcessResult(
         handled: false,
         routeType: AIHandledRouteType.appTask,
-        message: 'لا توجد خطة تنفيذ متاحة',
+        message: fallback,
       );
     }
 
     if (!planResult.isReady || planResult.task == null) {
-      final message = planResult.reason ?? 'تعذر تجهيز المهمة المطلوبة';
+      final message = planResult.reason ?? _generateFallbackResponse(originalText);
 
       await _voice.speak(message);
 
@@ -204,11 +211,23 @@ class AIController {
   // =========================
 
   String _generateFallbackResponse(String text) {
-    if (_containsAny(text, const ['افتح', 'شغل', 'ابعت', 'اتصل'])) {
-      return 'فهمت الطلب جزئيًا لكن ما زلت أحتاج استكمال ربط التنفيذ';
+    if (_containsAny(text, const ['افتح', 'شغل', 'افتحلي'])) {
+      return 'فهمت أنك تريد فتح تطبيق، لكن لم أتعرف على التطبيق المطلوب بدقة';
     }
 
-    return 'لم أفهم الطلب بشكل كافٍ';
+    if (_containsAny(text, const ['ابعت', 'ابعث', 'ارسل', 'أرسل'])) {
+      return 'فهمت أنك تريد إرسال شيء، لكن ما زلت أحتاج تفاصيل أكثر';
+    }
+
+    if (_containsAny(text, const ['اتصل', 'كلم'])) {
+      return 'فهمت أنك تريد إجراء اتصال، لكن أحتاج تفاصيل أكثر';
+    }
+
+    if (_containsAny(text, const ['ابحث', 'دور', 'search'])) {
+      return 'فهمت أنك تريد البحث، لكني أحتاج تفاصيل أوضح';
+    }
+
+    return 'لم أفهم المهمة بشكل كافٍ';
   }
 
   // =========================
