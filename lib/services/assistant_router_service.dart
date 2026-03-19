@@ -30,6 +30,10 @@ class AssistantRouterService {
       );
     }
 
+    // ================================
+    // 1) SMALL TALK FIRST
+    // ================================
+
     if (_looksLikeSmallTalk(normalizedText)) {
       return AssistantRouteResult(
         routeType: AssistantRouteType.smallTalk,
@@ -37,6 +41,10 @@ class AssistantRouterService {
         originalText: rawText,
       );
     }
+
+    // ================================
+    // 2) LOCAL APP / DEVICE PLANNING FIRST
+    // ================================
 
     final appTaskPlan = await _appTaskPlannerService.planFromText(rawText);
 
@@ -49,6 +57,24 @@ class AssistantRouterService {
       );
     }
 
+    // ================================
+    // 3) DIRECT DEVICE / APP ACTIONS MUST STAY LOCAL
+    // ================================
+
+    if (_looksLikeDirectDeviceAction(normalizedText)) {
+      return AssistantRouteResult(
+        routeType: AssistantRouteType.appTask,
+        message: appTaskPlan.reason ??
+            'الطلب يبدو كأمر تنفيذي مرتبط بالجهاز أو التطبيقات',
+        originalText: rawText,
+        appTaskPlanResult: appTaskPlan,
+      );
+    }
+
+    // ================================
+    // 4) RECOVERABLE LOCAL APP CASES
+    // ================================
+
     if (_isRecoverableAppTaskPlan(appTaskPlan)) {
       return AssistantRouteResult(
         routeType: AssistantRouteType.appTask,
@@ -57,6 +83,10 @@ class AssistantRouterService {
         appTaskPlanResult: appTaskPlan,
       );
     }
+
+    // ================================
+    // 5) ONLINE AI ONLY AFTER LOCAL FAILS
+    // ================================
 
     final shouldUseOnlineAi =
         await _onlineAiService.shouldUseOnlineAi(normalizedText);
@@ -70,15 +100,9 @@ class AssistantRouterService {
       );
     }
 
-    if (_looksLikeDirectDeviceAction(normalizedText)) {
-      return AssistantRouteResult(
-        routeType: AssistantRouteType.appTask,
-        message: appTaskPlan.reason ??
-            'الطلب يبدو كأمر تنفيذي مرتبط بالجهاز أو التطبيقات',
-        originalText: rawText,
-        appTaskPlanResult: appTaskPlan,
-      );
-    }
+    // ================================
+    // 6) UNKNOWN
+    // ================================
 
     return AssistantRouteResult(
       routeType: AssistantRouteType.unknown,
@@ -127,13 +151,11 @@ class AssistantRouterService {
       const [
         'ما هو',
         'ما هي',
+        'ماهي',
         'مين هو',
         'مين هي',
         'اشرح',
         'فسر',
-        'احكيلي',
-        'قول لي',
-        'قل لي',
         'عرفني',
         'معلومة',
         'معلومات',
@@ -147,6 +169,9 @@ class AssistantRouterService {
         'how',
         'explain',
         'tell me',
+        'summarize',
+        'summary',
+        'research',
       ],
     );
   }
@@ -167,12 +192,14 @@ class AssistantRouterService {
         'ابعت',
         'ابعتلي',
         'ابعث',
+        'ارسل',
+        'أرسل',
         'اتصل',
         'كلم',
         'روح',
         'ودي',
-        'ابحث',
-        'دوّر',
+        'دوّر في',
+        'دور في',
         'افتح المتجر',
         'نزل',
         'ثبت',
@@ -187,7 +214,6 @@ class AssistantRouterService {
         'launch',
         'send',
         'call',
-        'search',
         'install',
         'play',
       ],
