@@ -2,8 +2,6 @@ import 'dart:isolate';
 
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
-import 'voice_listener_service.dart';
-
 class BackgroundAssistantService {
   // ===============================
   // START SERVICE
@@ -18,7 +16,7 @@ class BackgroundAssistantService {
 
     await FlutterForegroundTask.startService(
       notificationTitle: 'المساعد الذكي يعمل',
-      notificationText: 'المساعد يستمع للأوامر الصوتية',
+      notificationText: 'المساعد جاهز ويعمل في الخلفية',
       callback: startCallback,
     );
   }
@@ -61,8 +59,6 @@ void startCallback() {
 // =====================================
 
 class AssistantTaskHandler extends TaskHandler {
-  final VoiceListenerService _voiceListener = VoiceListenerService();
-
   bool _started = false;
 
   // ===============================
@@ -75,12 +71,12 @@ class AssistantTaskHandler extends TaskHandler {
       return;
     }
 
-    try {
-      await _ensureVoiceListenerStarted();
-      _started = true;
-    } catch (_) {
-      _started = false;
-    }
+    _started = true;
+
+    FlutterForegroundTask.updateService(
+      notificationTitle: 'المساعد الذكي يعمل',
+      notificationText: 'الخدمة الخلفية نشطة، افتح التطبيق لاستخدام الاستماع',
+    );
   }
 
   // ===============================
@@ -89,19 +85,14 @@ class AssistantTaskHandler extends TaskHandler {
 
   @override
   Future<void> onRepeatEvent(DateTime timestamp, SendPort? sendPort) async {
-    try {
-      if (!_started) {
-        await _ensureVoiceListenerStarted();
-        _started = true;
-        return;
-      }
-
-      if (!_voiceListener.isListening) {
-        await _voiceListener.startListening();
-      }
-    } catch (_) {
-      // Ignore periodic recovery errors silently for now.
+    if (!_started) {
+      _started = true;
     }
+
+    FlutterForegroundTask.updateService(
+      notificationTitle: 'المساعد الذكي يعمل',
+      notificationText: 'الخدمة الخلفية نشطة، افتح التطبيق لاستخدام الاستماع',
+    );
   }
 
   // ===============================
@@ -110,13 +101,7 @@ class AssistantTaskHandler extends TaskHandler {
 
   @override
   Future<void> onDestroy(DateTime timestamp, SendPort? sendPort) async {
-    try {
-      await _voiceListener.dispose();
-    } catch (_) {
-      // Ignore shutdown errors silently for now.
-    } finally {
-      _started = false;
-    }
+    _started = false;
   }
 
   // ===============================
@@ -135,17 +120,5 @@ class AssistantTaskHandler extends TaskHandler {
   @override
   void onNotificationPressed() {
     FlutterForegroundTask.launchApp();
-  }
-
-  // ===============================
-  // INTERNAL HELPERS
-  // ===============================
-
-  Future<void> _ensureVoiceListenerStarted() async {
-    await _voiceListener.initialize();
-
-    if (!_voiceListener.isListening) {
-      await _voiceListener.startListening();
-    }
   }
 }
