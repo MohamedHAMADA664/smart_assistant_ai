@@ -1,5 +1,6 @@
 import 'app_task_planner_service.dart';
 import 'online_ai_service.dart';
+import 'openai_gateway.dart';
 
 class AssistantRouterService {
   AssistantRouterService({
@@ -7,7 +8,10 @@ class AssistantRouterService {
     OnlineAiService? onlineAiService,
   })  : _appTaskPlannerService =
             appTaskPlannerService ?? AppTaskPlannerService(),
-        _onlineAiService = onlineAiService ?? OnlineAiService();
+        _onlineAiService = onlineAiService ??
+            OnlineAiService(
+              gateway: OpenAiGateway(),
+            );
 
   final AppTaskPlannerService _appTaskPlannerService;
   final OnlineAiService _onlineAiService;
@@ -69,7 +73,8 @@ class AssistantRouterService {
     if (_looksLikeDirectDeviceAction(normalizedText)) {
       return AssistantRouteResult(
         routeType: AssistantRouteType.appTask,
-        message: appTaskPlan.reason ?? 'الطلب يبدو كأمر تنفيذي مرتبط بالجهاز أو التطبيقات',
+        message: appTaskPlan.reason ??
+            'الطلب يبدو كأمر تنفيذي مرتبط بالجهاز أو التطبيقات',
         originalText: rawText,
         appTaskPlanResult: appTaskPlan,
       );
