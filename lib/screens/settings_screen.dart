@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../services/assistant_profile_service.dart';
+import '../services/voice_response_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -11,6 +13,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final AssistantProfileService _profileService = AssistantProfileService();
+  final VoiceResponseService _voiceResponseService = VoiceResponseService();
 
   final TextEditingController _assistantNameController =
       TextEditingController();
@@ -18,6 +21,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isTestingVoice = false;
+  bool _isRequestingPermissions = false;
 
   String _voiceLanguage = 'ar';
   double _speechRate = 0.5;
@@ -35,6 +40,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _assistantNameController.dispose();
     _wakeWordController.dispose();
+    _voiceResponseService.dispose();
     super.dispose();
   }
 
@@ -102,6 +108,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
 
       await _profileService.saveProfile(profile);
+      await _voiceResponseService.refreshSettings();
 
       _showSnackBar('تم حفظ الإعدادات');
     } catch (_) {
@@ -135,6 +142,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _onlineAiEnabled = profile.onlineAiEnabled;
       _backgroundModeEnabled = profile.backgroundModeEnabled;
 
+      await _voiceResponseService.refreshSettings();
+
       _showSnackBar('تمت إعادة ضبط الإعدادات');
     } catch (_) {
       _showSnackBar('تعذر إعادة ضبط الإعدادات');
@@ -144,6 +153,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _isSaving = false;
         });
       }
+    }
+  }
+
+  // ================================
+  // TEST VOICE
+  // ================================
+
+  Future<void> _testVoice() async {
+    if (_isTestingVoice) {
+      return;
+    }
+
+    setState(() {
+      _isTestingVoice = true;
+    });
+
+    try {
+      await _saveProfile();
+
+      final testMessage = _voiceLanguage == 'en'
+          ? 'Hello, I am ready to help you.'
+          : 'مرحبًا، أنا جاهز لمساعدتك.';
+
+      await _voiceResponseService.speak(testMessage);
+    } catch (_) {
+      _showSnackBar('تعذر اختبار الصوت');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTestingVoice = false;
+        });
+      }
+    }
+  }
+
+  // ================================
+  // PERMISSIONS
+  // ================================
+
+  Future<void> _requestEssentialPermissions() async {
+    if (_isRequestingPermissions) {
+      return;
+    }
+
+    setState(() {
+      _isRequestingPermissions = true;
+    });
+
+    try {
+      final microphone = await Permission.microphone.request();
+      final contacts = await Permission.contacts.request();
+      final phone = await Permission.phone.request();
+      final notification = await Permission.notification.request();
+
+      final allGranted = microphone.isGranted &&
+          contacts.isGranted &&
+          phone.isGranted &&
+          notification.isGranted;
+
+      if (allGranted) {
+        _showSnackBar('تم منح الصلاحيات الأساسية');
+      } else {
+        _showSnackBar('بعض الصلاحيات ما زالت غير مفعلة');
+      }
+    } catch (_) {
+      _showSnackBar('تعذر طلب الصلاحيات');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRequestingPermissions = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openAppPermissionSettings() async {
+    final opened = await openAppSettings();
+
+    if (!opened) {
+      _showSnackBar('تعذر فتح إعدادات التطبيق');
     }
   }
 
@@ -287,6 +376,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           });
                         },
                       ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _isTestingVoice ? null : _testVoice,
+                          icon: _isTestingVoice
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.volume_up),
+                          label: Text(
+                            _isTestingVoice
+                                ? 'جارٍ اختبار الصوت...'
+                                : 'اختبار الصوت',
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -326,6 +436,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             _backgroundModeEnabled = value;
                           });
                         },
+                      ),
+                    ],
+                  ),
+                ),
+                _buildSectionTitle('الصلاحيات والتشخيص'),
+                _buildCard(
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _isRequestingPermissions
+                              ? null
+                              : _requestEssentialPermissions,
+                          icon: _isRequestingPermissions
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.security),
+                          label: Text(
+                            _isRequestingPermissions
+                                ? 'جارٍ طلب الصلاحيات...'
+                                : 'طلب الصلاحيات الأساسية',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _openAppPermissionSettings,
+                          icon: const Icon(Icons.settings_applications),
+                          label: const Text('فتح إعدادات التطبيق'),
+                        ),
                       ),
                     ],
                   ),
