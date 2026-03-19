@@ -7,6 +7,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 import '../ai/ai_controller.dart';
 import '../ai/wake_word_service.dart';
 import '../core/system_controller.dart';
+import 'voice_response_service.dart'; // ✅ إضافة
 
 class VoiceListenerService {
   VoiceListenerService({
@@ -15,16 +16,19 @@ class VoiceListenerService {
     SystemController? systemController,
     AIController? aiController,
     Logger? logger,
+    VoiceResponseService? voiceResponseService, // ✅ إضافة
   })  : _speech = speechToText ?? SpeechToText(),
         _wakeWordService = wakeWordService ?? WakeWordService(),
         _systemController = systemController ?? SystemController(),
         _aiController = aiController ?? AIController(),
+        _voice = voiceResponseService ?? VoiceResponseService(), // ✅ إضافة
         _logger = logger ?? Logger();
 
   final SpeechToText _speech;
   final WakeWordService _wakeWordService;
   final SystemController _systemController;
   final AIController _aiController;
+  final VoiceResponseService _voice; // ✅ إضافة
   final Logger _logger;
 
   static const MethodChannel _callEventsChannel =
@@ -61,6 +65,7 @@ class VoiceListenerService {
     try {
       await _wakeWordService.initialize();
       await _systemController.initialize();
+      await _voice.initialize(); // ✅ مهم جدًا
 
       _callEventsChannel.setMethodCallHandler(_handleNativeCallEvent);
 
@@ -210,12 +215,33 @@ class VoiceListenerService {
       }
 
       // =========================
-      // WAKE WORD DETECTION
+      // WAKE WORD DETECTION (FIXED)
       // =========================
       if (!_wakeWordActivated) {
         if (_wakeWordService.detectWakeWord(text)) {
+          final commandOnly = _removeWakeWord(text);
+
           _activateWakeSession();
+
+          if (commandOnly.isNotEmpty) {
+            final aiResult = await _aiController.processVoice(commandOnly);
+
+            if (aiResult.handled) {
+              _logger.i(
+                'Command handled immediately after wake word via route: ${aiResult.routeType.name}',
+              );
+            } else if (!aiResult.isIgnored) {
+              _logger.d('AIController could not fully handle the command');
+            }
+
+            _clearWakeSession();
+          } else {
+            await _voice.speak('سمعاك'); // ✅ رد صوتي
+          }
+
+          return;
         }
+
         return;
       }
 
@@ -270,12 +296,31 @@ class VoiceListenerService {
     _isWaitingCallResponse = true;
     _clearWakeSession();
 
+    await _voice.speak('مكالمة واردة من $incomingNumber هل تريد الرد أم الرفض'); // ✅ صوت
     await _systemController.onIncomingCall(incomingNumber);
   }
 
   // =========================
   // HELPERS
   // =========================
+
+  String _removeWakeWord(String text) {
+    final wakeWord = _wakeWordService.getWakeWord().toLowerCase().trim();
+
+    var cleaned = text;
+
+    if (wakeWord.isNotEmpty) {
+      cleaned = cleaned.replaceAll(wakeWord, ' ');
+    }
+
+    const defaults = ['يا nada', 'nada', 'assistant'];
+
+    for (final word in defaults) {
+      cleaned = cleaned.replaceAll(word.toLowerCase(), ' ');
+    }
+
+    return cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
 
   void _activateWakeSession() {
     _wakeWordActivated = true;
@@ -324,39 +369,4 @@ class VoiceListenerService {
 
   bool _containsAny(String text, List<String> values) {
     for (final value in values) {
-      if (text.contains(value)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  void _scheduleRestart() {
-    if (_isRestarting) {
-      return;
-    }
-
-    _restartDebounceTimer?.cancel();
-    _restartDebounceTimer = Timer(_restartDelay, () async {
-      if (_isListening) {
-        return;
-      }
-
-      _isRestarting = true;
-      try {
-        await startListening();
-      } finally {
-        _isRestarting = false;
-      }
-    });
-  }
-
-  String _normalize(String text) {
-    return text
-        .toLowerCase()
-        .trim()
-        .replaceAll(RegExp(r'[،,.!?؟]'), '')
-        .replaceAll(RegExp(r'\s+'), ' ');
-  }
-}
+      if (
