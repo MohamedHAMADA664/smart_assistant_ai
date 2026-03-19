@@ -1,21 +1,15 @@
-name: Build Flutter Web
+name: Build Flutter APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  build:
+  build-apk:
     runs-on: ubuntu-latest
 
     steps:
@@ -33,33 +27,22 @@ jobs:
         with:
           flutter-version: 3.24.5
           channel: stable
-          cache: false
+          cache: true
 
       - name: Disable analytics
         run: flutter config --no-analytics
 
-      - name: Enable web
-        run: flutter config --enable-web
+      - name: Flutter doctor
+        run: flutter doctor -v
 
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Build web
-        run: flutter build web --release
+      - name: Build release APK
+        run: flutter build apk --release
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
         with:
-          path: build/web
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          name: smart-assistant-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
