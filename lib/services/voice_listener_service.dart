@@ -36,18 +36,18 @@ class VoiceListenerService {
 
   bool _isInitialized = false;
   bool _isListening = false;
-  bool _isRestarting = false;
+  bool _isStartingListening = false;
   bool _wakeWordActivated = false;
   bool _isWaitingCallResponse = false;
-  bool _isTemporarilyPausedForSpeech = false;
+  bool _isAssistantSpeaking = false;
 
   String _lastProcessedText = '';
   DateTime? _lastWakeTime;
-  Timer? _restartDebounceTimer;
+  Timer? _restartTimer;
 
   static const Duration _wakeSessionTimeout = Duration(seconds: 10);
-  static const Duration _restartDelay = Duration(milliseconds: 700);
-  static const Duration _resumeAfterSpeakDelay = Duration(milliseconds: 500);
+  static const Duration _restartDelay = Duration(seconds: 2);
+  static const Duration _resumeAfterSpeakDelay = Duration(milliseconds: 800);
 
   bool get isInitialized => _isInitialized;
   bool get isListening => _isListening;
@@ -74,6 +74,7 @@ class VoiceListenerService {
       final available = await _speech.initialize(
         onStatus: _onSpeechStatus,
         onError: _onSpeechError,
+        debugLogging: true,
       );
 
       if (!available) {
@@ -97,6 +98,10 @@ class VoiceListenerService {
   // =========================
 
   Future<void> startListening() async {
+    if (_isStartingListening) {
+      return;
+    }
+
     if (!_isInitialized) {
       await initialize();
     }
@@ -107,24 +112,43 @@ class VoiceListenerService {
     }
 
     if (_isListening) {
-      _logger.d('Start listening skipped because listener is already active');
+      _logger.d('Listening already active');
       return;
     }
 
-    try {
-      _isListening = true;
+    _restartTimer?.cancel();
+    _isStartingListening = true;
 
-      await _speech.listen(
+    try {
+      String? localeId;
+
+      final locales = await _speech.locales();
+      for (final locale in locales) {
+        final id = locale.localeId.toLowerCase();
+        if (id.startsWith('ar')) {
+          localeId = locale.localeId;
+          break;
+        }
+      }
+
+      localeId ??= await _speech.systemLocale().then((value) => value?.localeId);
+
+      final started = await _speech.listen(
         onResult: _onSpeechResult,
-        listenFor: const Duration(minutes: 10),
-        pauseFor: const Duration(seconds: 5),
+        listenFor: const Duration(minutes: 1),
+        pauseFor: const Duration(seconds: 4),
         partialResults: true,
         cancelOnError: false,
         listenMode: ListenMode.dictation,
-        localeId: 'ar_EG',
+        localeId: localeId,
       );
 
-      _logger.i('Voice listening started');
+      _isListening = started;
+      _logger.i('Voice listening started: $_isListening, locale: $localeId');
+
+      if (!started) {
+        _scheduleRestart();
+      }
     } catch (e, stackTrace) {
       _isListening = false;
       _logger.e(
@@ -133,6 +157,8 @@ class VoiceListenerService {
         stackTrace: stackTrace,
       );
       _scheduleRestart();
+    } finally {
+      _isStartingListening = false;
     }
   }
 
@@ -141,7 +167,7 @@ class VoiceListenerService {
   // =========================
 
   Future<void> stopListening() async {
-    _restartDebounceTimer?.cancel();
+    _restartTimer?.cancel();
 
     if (!_isListening) {
       return;
@@ -166,7 +192,7 @@ class VoiceListenerService {
   // =========================
 
   Future<void> dispose() async {
-    _restartDebounceTimer?.cancel();
+    _restartTimer?.cancel();
     await stopListening();
     _callEventsChannel.setMethodCallHandler(null);
   }
@@ -178,11 +204,16 @@ class VoiceListenerService {
   void _onSpeechStatus(String status) {
     _logger.d('Speech status: $status');
 
+    if (status == 'listening') {
+      _isListening = true;
+      return;
+    }
+
     if (status == 'done' || status == 'notListening') {
       _isListening = false;
 
-      if (_isTemporarilyPausedForSpeech) {
-        _logger.d('Speech listener stopped temporarily for assistant speech');
+      if (_isAssistantSpeaking) {
+        _logger.d('Speech stopped because assistant is speaking');
         return;
       }
 
@@ -190,21 +221,20 @@ class VoiceListenerService {
     }
   }
 
-  void _onSpeechError(dynamic error) {
-    _logger.e('Speech error: $error');
+  void _onSpeechError(SpeechRecognitionError error) {
+    _logger.e('Speech error: ${error.errorMsg} / permanent: ${error.permanent}');
     _isListening = false;
 
-    if (_isTemporarilyPausedForSpeech) {
-      _logger.d('Speech error ignored because listener is temporarily paused');
+    if (_isAssistantSpeaking) {
       return;
     }
 
     _scheduleRestart();
   }
 
-  Future<void> _onSpeechResult(dynamic result) async {
+  Future<void> _onSpeechResult(SpeechRecognitionResult result) async {
     try {
-      final text = _normalize(result.recognizedWords as String? ?? '');
+      final text = _normalize(result.recognizedWords);
 
       if (text.isEmpty) {
         return;
@@ -236,7 +266,6 @@ class VoiceListenerService {
       if (!_wakeWordActivated) {
         if (_wakeWordService.detectWakeWord(text)) {
           final commandOnly = _removeWakeWord(text);
-
           _activateWakeSession();
 
           if (commandOnly.isNotEmpty) {
@@ -244,8 +273,6 @@ class VoiceListenerService {
           } else {
             await _speakAndResume('سمعاك');
           }
-
-          return;
         }
 
         return;
@@ -342,7 +369,7 @@ class VoiceListenerService {
   }
 
   Future<void> _pauseListeningForAssistantSpeech() async {
-    _isTemporarilyPausedForSpeech = true;
+    _isAssistantSpeaking = true;
 
     try {
       if (_isListening) {
@@ -361,17 +388,7 @@ class VoiceListenerService {
 
   Future<void> _resumeListeningAfterAssistantSpeech() async {
     await Future<void>.delayed(_resumeAfterSpeakDelay);
-
-    _isTemporarilyPausedForSpeech = false;
-
-    if (!_isInitialized) {
-      return;
-    }
-
-    if (_isListening) {
-      return;
-    }
-
+    _isAssistantSpeaking = false;
     await startListening();
   }
 
@@ -458,22 +475,17 @@ class VoiceListenerService {
   }
 
   void _scheduleRestart() {
-    if (_isRestarting || _isTemporarilyPausedForSpeech) {
+    if (_isAssistantSpeaking || _isStartingListening) {
       return;
     }
 
-    _restartDebounceTimer?.cancel();
-    _restartDebounceTimer = Timer(_restartDelay, () async {
+    _restartTimer?.cancel();
+    _restartTimer = Timer(_restartDelay, () async {
       if (_isListening) {
         return;
       }
 
-      _isRestarting = true;
-      try {
-        await startListening();
-      } finally {
-        _isRestarting = false;
-      }
+      await startListening();
     });
   }
 
