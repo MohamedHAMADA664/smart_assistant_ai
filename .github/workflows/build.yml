@@ -89,11 +89,16 @@ jobs:
           chmod +x gradlew
           ./gradlew --version
 
-      - name: Build Release APK with Gradle
+      - name: Build Release APK
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
         run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew app:assembleRelease --no-daemon
+          flutter build apk --release \
+            --dart-define=OPENAI_API_KEY=$OPENAI_API_KEY \
+            --dart-define=OPENAI_MODEL=$OPENAI_MODEL \
+            --dart-define=OPENAI_BASE_URL=$OPENAI_BASE_URL
 
       - name: List APK outputs
         if: success()
@@ -107,8 +112,3 @@ jobs:
         with:
           name: app-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
-
-      - name: Print AndroidManifest.xml
-        run: |
-          echo "===== AndroidManifest.xml ====="
-          cat android/app/src/main/AndroidManifest.xml
