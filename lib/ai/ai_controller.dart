@@ -105,6 +105,7 @@ class AIController {
 
     if (planResult == null) {
       final fallback = _generateFallbackResponse(originalText);
+
       await _voice.speak(fallback);
 
       return AIProcessResult(
@@ -115,7 +116,10 @@ class AIController {
     }
 
     if (!planResult.isReady || planResult.task == null) {
-      final message = planResult.reason ?? _generateFallbackResponse(originalText);
+      final message =
+          planResult.reason?.trim().isNotEmpty == true
+              ? planResult.reason!.trim()
+              : _generateFallbackResponse(originalText);
 
       await _voice.speak(message);
 
@@ -145,21 +149,28 @@ class AIController {
     final result = await _onlineAiService.askQuestion(text);
 
     if (!result.isSuccess || result.answer == null || result.answer!.isEmpty) {
-      await _voice.speak(result.message);
+      final message =
+          result.message.trim().isEmpty
+              ? 'تعذر الحصول على رد من الذكاء عبر الإنترنت'
+              : result.message.trim();
+
+      await _voice.speak(message);
 
       return AIProcessResult(
         handled: false,
         routeType: AIHandledRouteType.onlineAi,
-        message: result.message,
+        message: message,
       );
     }
 
-    await _voice.speak(result.answer!);
+    final answer = result.answer!.trim();
+
+    await _voice.speak(answer);
 
     return AIProcessResult(
       handled: true,
       routeType: AIHandledRouteType.onlineAi,
-      message: result.answer!,
+      message: answer,
     );
   }
 
@@ -203,6 +214,10 @@ class AIController {
       return 'أهلًا بك، كيف أساعدك؟';
     }
 
+    if (_containsAny(text, const ['شكرا', 'متشكر', 'thanks', 'thank you'])) {
+      return 'على الرحب والسعة';
+    }
+
     return 'أنا معك';
   }
 
@@ -223,8 +238,12 @@ class AIController {
       return 'فهمت أنك تريد إجراء اتصال، لكن أحتاج تفاصيل أكثر';
     }
 
-    if (_containsAny(text, const ['ابحث', 'دور', 'search'])) {
+    if (_containsAny(text, const ['ابحث', 'دور', 'دوّر', 'search'])) {
       return 'فهمت أنك تريد البحث، لكني أحتاج تفاصيل أوضح';
+    }
+
+    if (_containsAny(text, const ['ثبت', 'نزل', 'نزّل', 'install'])) {
+      return 'فهمت أنك تريد تثبيت تطبيق، لكن أحتاج اسم التطبيق بوضوح';
     }
 
     return 'لم أفهم المهمة بشكل كافٍ';
