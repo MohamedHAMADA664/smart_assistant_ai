@@ -26,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isBusy = false;
   bool _isProfileLoading = true;
   bool _isInitializingVoice = false;
+  bool _isVoiceListening = false;
 
   String _assistantName = 'مساعدي';
   String _wakeWord = 'يا مساعدي';
@@ -52,6 +53,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     if (state == AppLifecycleState.resumed) {
       _restoreVoiceListeningIfNeeded();
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _pauseVoiceListeningForBackground();
     }
   }
 
@@ -112,6 +120,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _assistantRunning = isRunning;
+        _isVoiceListening = _voiceListenerService.isListening;
       });
     } catch (_) {
       if (!mounted) {
@@ -120,6 +129,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _assistantRunning = false;
+        _isVoiceListening = false;
       });
     }
   }
@@ -145,10 +155,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!_voiceListenerService.isListening) {
         await _voiceListenerService.startListening();
       }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isVoiceListening = _voiceListenerService.isListening;
+      });
     } catch (_) {
-      _showSnackBar('تعذر تهيئة الاستماع الصوتي');
+      if (mounted) {
+        _showSnackBar('تعذر تهيئة الاستماع الصوتي');
+        setState(() {
+          _isVoiceListening = false;
+        });
+      }
     } finally {
       _isInitializingVoice = false;
+    }
+  }
+
+  // =========================
+  // PAUSE VOICE LISTENING
+  // =========================
+
+  Future<void> _pauseVoiceListeningForBackground() async {
+    try {
+      await _voiceListenerService.stopListening();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isVoiceListening = false;
+      });
+    } catch (_) {
+      // تجاهل أخطاء الإيقاف في الخلفية
     }
   }
 
@@ -181,7 +224,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     try {
       await BackgroundAssistantService.startService();
-
       await _voiceListenerService.initialize();
       await _voiceListenerService.startListening();
 
@@ -191,9 +233,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _assistantRunning = true;
+        _isVoiceListening = _voiceListenerService.isListening;
       });
 
-      _showSnackBar('تم تشغيل المساعد والاستماع الصوتي');
+      _showSnackBar('تم تشغيل المساعد وبدء الاستماع داخل التطبيق');
     } catch (_) {
       _showSnackBar('تعذر تشغيل المساعد');
     } finally {
@@ -228,6 +271,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _assistantRunning = false;
+        _isVoiceListening = false;
       });
 
       _showSnackBar('تم إيقاف المساعد');
@@ -425,22 +469,47 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       },
                     ),
                     const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        _assistantRunning ? 'الحالة: يعمل' : 'الحالة: متوقف',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            _assistantRunning ? 'الحالة: يعمل' : 'الحالة: متوقف',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            _isVoiceListening
+                                ? 'الاستماع: نشط'
+                                : 'الاستماع: غير نشط',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -505,7 +574,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 const SizedBox(height: 14),
                 Text(
                   _assistantRunning
-                      ? 'المساعد يعمل في الخلفية والاستماع نشط داخل التطبيق'
+                      ? 'المساعد يعمل، والاستماع يكون داخل التطبيق أثناء فتحه'
                       : 'اضغط لتشغيل المساعد وبدء الاستماع',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
