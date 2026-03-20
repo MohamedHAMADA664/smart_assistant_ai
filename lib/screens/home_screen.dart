@@ -30,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   String _assistantName = 'مساعدي';
   String _wakeWord = 'يا مساعدي';
+  String _debugStatus = 'جاهز';
 
   @override
   void initState() {
@@ -150,6 +151,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _isInitializingVoice = true;
 
     try {
+      setState(() {
+        _debugStatus = 'جارٍ تهيئة الاستماع...';
+      });
+
       await _voiceListenerService.initialize();
 
       if (!_voiceListenerService.isListening) {
@@ -162,12 +167,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isVoiceListening = _voiceListenerService.isListening;
+        _debugStatus = _isVoiceListening
+            ? 'الاستماع مفعّل داخل التطبيق'
+            : 'الاستماع لم يبدأ فعليًا';
       });
     } catch (_) {
       if (mounted) {
         _showSnackBar('تعذر تهيئة الاستماع الصوتي');
         setState(() {
           _isVoiceListening = false;
+          _debugStatus = 'فشل تهيئة الاستماع';
         });
       }
     } finally {
@@ -189,9 +198,123 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isVoiceListening = false;
+        _debugStatus = 'تم إيقاف الاستماع لأن التطبيق بالخلفية';
       });
     } catch (_) {
       // تجاهل أخطاء الإيقاف في الخلفية
+    }
+  }
+
+  // =========================
+  // MANUAL VOICE ACTIONS
+  // =========================
+
+  Future<void> _restartVoiceOnly() async {
+    if (_isBusy || _isInitializingVoice) {
+      return;
+    }
+
+    setState(() {
+      _isInitializingVoice = true;
+      _debugStatus = 'جارٍ إعادة تشغيل الاستماع...';
+    });
+
+    try {
+      await _voiceListenerService.stopListening();
+      await _voiceListenerService.initialize();
+      await _voiceListenerService.startListening();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isVoiceListening = _voiceListenerService.isListening;
+        _debugStatus = _isVoiceListening
+            ? 'تمت إعادة تشغيل الاستماع'
+            : 'إعادة التشغيل لم تفعل الاستماع';
+      });
+
+      _showSnackBar('تمت محاولة إعادة تشغيل الاستماع');
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isVoiceListening = false;
+        _debugStatus = 'فشلت إعادة تشغيل الاستماع';
+      });
+
+      _showSnackBar('فشلت إعادة تشغيل الاستماع');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInitializingVoice = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleVoiceOnly() async {
+    if (_isBusy || !_assistantRunning) {
+      return;
+    }
+
+    setState(() {
+      _isInitializingVoice = true;
+    });
+
+    try {
+      if (_voiceListenerService.isListening) {
+        await _voiceListenerService.stopListening();
+
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _isVoiceListening = false;
+          _debugStatus = 'تم إيقاف الاستماع يدويًا';
+        });
+
+        _showSnackBar('تم إيقاف الاستماع');
+      } else {
+        await _voiceListenerService.initialize();
+        await _voiceListenerService.startListening();
+
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _isVoiceListening = _voiceListenerService.isListening;
+          _debugStatus = _isVoiceListening
+              ? 'تم تشغيل الاستماع يدويًا'
+              : 'تعذر تشغيل الاستماع يدويًا';
+        });
+
+        _showSnackBar(
+          _isVoiceListening ? 'تم تشغيل الاستماع' : 'تعذر تشغيل الاستماع',
+        );
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isVoiceListening = false;
+        _debugStatus = 'حدث خطأ أثناء التحكم في الاستماع';
+      });
+
+      _showSnackBar('حدث خطأ أثناء التحكم في الاستماع');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInitializingVoice = false;
+        });
+      }
     }
   }
 
@@ -220,6 +343,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     setState(() {
       _isBusy = true;
+      _debugStatus = 'جارٍ تشغيل المساعد...';
     });
 
     try {
@@ -234,11 +358,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _assistantRunning = true;
         _isVoiceListening = _voiceListenerService.isListening;
+        _debugStatus = _isVoiceListening
+            ? 'تم تشغيل المساعد والاستماع نشط'
+            : 'تم تشغيل المساعد لكن الاستماع غير نشط';
       });
 
       _showSnackBar('تم تشغيل المساعد وبدء الاستماع داخل التطبيق');
     } catch (_) {
       _showSnackBar('تعذر تشغيل المساعد');
+
+      if (mounted) {
+        setState(() {
+          _debugStatus = 'فشل تشغيل المساعد';
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -259,6 +392,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     setState(() {
       _isBusy = true;
+      _debugStatus = 'جارٍ إيقاف المساعد...';
     });
 
     try {
@@ -272,11 +406,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _assistantRunning = false;
         _isVoiceListening = false;
+        _debugStatus = 'تم إيقاف المساعد';
       });
 
       _showSnackBar('تم إيقاف المساعد');
     } catch (_) {
       _showSnackBar('تعذر إيقاف المساعد');
+
+      if (mounted) {
+        setState(() {
+          _debugStatus = 'فشل إيقاف المساعد';
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -389,6 +530,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildDebugChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 6,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 13,
+        ),
+      ),
+    );
+  }
+
   // =========================
   // BUILD
   // =========================
@@ -472,42 +633,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            _assistantRunning ? 'الحالة: يعمل' : 'الحالة: متوقف',
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 13,
-                            ),
-                          ),
+                        _buildDebugChip(
+                          _assistantRunning ? 'الحالة: يعمل' : 'الحالة: متوقف',
                         ),
                         const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            _isVoiceListening
-                                ? 'الاستماع: نشط'
-                                : 'الاستماع: غير نشط',
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 13,
-                            ),
-                          ),
+                        _buildDebugChip(
+                          _isVoiceListening
+                              ? 'الاستماع: نشط'
+                              : 'الاستماع: غير نشط',
                         ),
                       ],
                     ),
@@ -532,6 +665,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   style: const TextStyle(
                     color: Colors.white60,
                     fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    'الحالة التشخيصية: $_debugStatus',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 30),
@@ -570,6 +720,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             _startAssistant();
                           }
                         },
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _assistantRunning &&
+                                !_isInitializingVoice &&
+                                !_isBusy
+                            ? _toggleVoiceOnly
+                            : null,
+                        icon: Icon(
+                          _isVoiceListening ? Icons.mic_off : Icons.mic,
+                        ),
+                        label: Text(
+                          _isVoiceListening
+                              ? 'إيقاف الاستماع'
+                              : 'تشغيل الاستماع',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _assistantRunning &&
+                                !_isInitializingVoice &&
+                                !_isBusy
+                            ? _restartVoiceOnly
+                            : null,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('إعادة التهيئة'),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 14),
                 Text(
