@@ -40,19 +40,27 @@ class VoiceListenerService {
   bool _wakeWordActivated = false;
   bool _isWaitingCallResponse = false;
   bool _isAssistantSpeaking = false;
+  bool _isDisposing = false;
+  bool _suppressAutoRestart = false;
 
   String _lastProcessedText = '';
   DateTime? _lastWakeTime;
+  DateTime? _lastListenStartedAt;
   Timer? _restartTimer;
 
   static const Duration _wakeSessionTimeout = Duration(seconds: 10);
-  static const Duration _restartDelay = Duration(seconds: 2);
-  static const Duration _resumeAfterSpeakDelay = Duration(milliseconds: 800);
+  static const Duration _restartDelay = Duration(seconds: 3);
+  static const Duration _resumeAfterSpeakDelay = Duration(milliseconds: 1200);
+  static const Duration _minimumStableListenWindow = Duration(seconds: 2);
 
   bool get isInitialized => _isInitialized;
   bool get isListening => _isListening;
   bool get isWakeWordActivated => _wakeWordActivated;
   bool get isWaitingCallResponse => _isWaitingCallResponse;
+
+  // =========================
+  // INITIALIZE
+  // =========================
 
   Future<void> initialize() async {
     if (_isInitialized) {
@@ -89,8 +97,21 @@ class VoiceListenerService {
     }
   }
 
+  // =========================
+  // START LISTENING
+  // =========================
+
   Future<void> startListening() async {
+    if (_isDisposing) {
+      return;
+    }
+
     if (_isStartingListening) {
+      return;
+    }
+
+    if (_isAssistantSpeaking) {
+      _logger.d('Start listening skipped because assistant is speaking');
       return;
     }
 
@@ -112,23 +133,12 @@ class VoiceListenerService {
     _isStartingListening = true;
 
     try {
-      String? localeId;
-
-      final locales = await _speech.locales();
-      for (final locale in locales) {
-        final id = locale.localeId.toLowerCase();
-        if (id.startsWith('ar')) {
-          localeId = locale.localeId;
-          break;
-        }
-      }
-
-      localeId ??= await _speech.systemLocale().then((value) => value?.localeId);
+      final localeId = await _resolvePreferredLocaleId();
 
       await _speech.listen(
         onResult: _onSpeechResult,
-        listenFor: const Duration(minutes: 1),
-        pauseFor: const Duration(seconds: 4),
+        listenFor: const Duration(minutes: 5),
+        pauseFor: const Duration(seconds: 8),
         partialResults: true,
         cancelOnError: false,
         listenMode: ListenMode.dictation,
@@ -136,6 +146,7 @@ class VoiceListenerService {
       );
 
       _isListening = true;
+      _lastListenStartedAt = DateTime.now();
       _logger.i('Voice listening started, locale: $localeId');
     } catch (e, stackTrace) {
       _isListening = false;
@@ -150,15 +161,45 @@ class VoiceListenerService {
     }
   }
 
+  Future<String?> _resolvePreferredLocaleId() async {
+    try {
+      final locales = await _speech.locales();
+
+      for (final locale in locales) {
+        final id = locale.localeId.toLowerCase();
+        if (id == 'ar_eg') {
+          return locale.localeId;
+        }
+      }
+
+      for (final locale in locales) {
+        final id = locale.localeId.toLowerCase();
+        if (id.startsWith('ar')) {
+          return locale.localeId;
+        }
+      }
+
+      final systemLocale = await _speech.systemLocale();
+      return systemLocale?.localeId;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // =========================
+  // STOP LISTENING
+  // =========================
+
   Future<void> stopListening() async {
     _restartTimer?.cancel();
+    _suppressAutoRestart = true;
 
-    if (!_isListening) {
+    if (!_isListening && !_isStartingListening) {
       return;
     }
 
     try {
-      await _speech.stop();
+      await _speech.cancel();
     } catch (e, stackTrace) {
       _logger.e(
         'Failed to stop listening',
@@ -167,15 +208,25 @@ class VoiceListenerService {
       );
     } finally {
       _isListening = false;
+      _isStartingListening = false;
       _logger.i('Voice listening stopped');
     }
   }
 
+  // =========================
+  // DISPOSE
+  // =========================
+
   Future<void> dispose() async {
+    _isDisposing = true;
     _restartTimer?.cancel();
     await stopListening();
     _callEventsChannel.setMethodCallHandler(null);
   }
+
+  // =========================
+  // SPEECH CALLBACKS
+  // =========================
 
   void _onSpeechStatus(String status) {
     _logger.d('Speech status: $status');
@@ -188,8 +239,26 @@ class VoiceListenerService {
     if (status == 'done' || status == 'notListening') {
       _isListening = false;
 
+      if (_isDisposing) {
+        _logger.d('Speech stopped because service is disposing');
+        return;
+      }
+
+      if (_suppressAutoRestart) {
+        _logger.d('Speech stopped while auto restart is suppressed');
+        return;
+      }
+
       if (_isAssistantSpeaking) {
         _logger.d('Speech stopped because assistant is speaking');
+        return;
+      }
+
+      final startedAt = _lastListenStartedAt;
+      if (startedAt != null &&
+          DateTime.now().difference(startedAt) < _minimumStableListenWindow) {
+        _logger.d('Speech stopped too early, scheduling delayed restart');
+        _scheduleRestart(delay: const Duration(seconds: 4));
         return;
       }
 
@@ -200,6 +269,15 @@ class VoiceListenerService {
   void _onSpeechError(dynamic error) {
     _logger.e('Speech error: $error');
     _isListening = false;
+
+    if (_isDisposing) {
+      return;
+    }
+
+    if (_suppressAutoRestart) {
+      _logger.d('Speech error ignored because auto restart is suppressed');
+      return;
+    }
 
     if (_isAssistantSpeaking) {
       return;
@@ -222,6 +300,10 @@ class VoiceListenerService {
         return;
       }
 
+      // =========================
+      // CALL RESPONSE MODE
+      // =========================
+
       if (_isWaitingCallResponse) {
         final commandResult = await _systemController.handleCommand(text);
 
@@ -232,6 +314,10 @@ class VoiceListenerService {
 
         return;
       }
+
+      // =========================
+      // WAKE WORD DETECTION
+      // =========================
 
       if (!_wakeWordActivated) {
         if (_wakeWordService.detectWakeWord(text)) {
@@ -248,11 +334,19 @@ class VoiceListenerService {
         return;
       }
 
+      // =========================
+      // WAKE SESSION TIMEOUT
+      // =========================
+
       if (_isWakeSessionExpired()) {
         _logger.d('Wake session expired');
         _clearWakeSession();
         return;
       }
+
+      // =========================
+      // NORMAL COMMAND ROUTING
+      // =========================
 
       await _handleAssistantCommand(text);
     } catch (e, stackTrace) {
@@ -263,6 +357,10 @@ class VoiceListenerService {
       );
     }
   }
+
+  // =========================
+  // COMMAND HANDLING
+  // =========================
 
   Future<void> _handleAssistantCommand(String text) async {
     await _pauseListeningForAssistantSpeech();
@@ -282,6 +380,10 @@ class VoiceListenerService {
       await _resumeListeningAfterAssistantSpeech();
     }
   }
+
+  // =========================
+  // CALL EVENTS
+  // =========================
 
   Future<void> _handleNativeCallEvent(MethodCall call) async {
     if (call.method != 'incomingCall') {
@@ -310,6 +412,10 @@ class VoiceListenerService {
     }
   }
 
+  // =========================
+  // SPEAK / PAUSE HELPERS
+  // =========================
+
   Future<void> _speakAndResume(String text) async {
     await _pauseListeningForAssistantSpeech();
 
@@ -322,10 +428,12 @@ class VoiceListenerService {
 
   Future<void> _pauseListeningForAssistantSpeech() async {
     _isAssistantSpeaking = true;
+    _suppressAutoRestart = true;
+    _restartTimer?.cancel();
 
     try {
-      if (_isListening) {
-        await _speech.stop();
+      if (_isListening || _isStartingListening) {
+        await _speech.cancel();
       }
     } catch (e, stackTrace) {
       _logger.e(
@@ -335,14 +443,25 @@ class VoiceListenerService {
       );
     } finally {
       _isListening = false;
+      _isStartingListening = false;
     }
   }
 
   Future<void> _resumeListeningAfterAssistantSpeech() async {
     await Future<void>.delayed(_resumeAfterSpeakDelay);
+
+    if (_isDisposing) {
+      return;
+    }
+
     _isAssistantSpeaking = false;
+    _suppressAutoRestart = false;
     await startListening();
   }
+
+  // =========================
+  // HELPERS
+  // =========================
 
   String _removeWakeWord(String text) {
     var cleaned = text;
@@ -422,13 +541,22 @@ class VoiceListenerService {
     return false;
   }
 
-  void _scheduleRestart() {
-    if (_isAssistantSpeaking || _isStartingListening) {
+  void _scheduleRestart({Duration? delay}) {
+    if (_isDisposing || _isAssistantSpeaking || _isStartingListening) {
+      return;
+    }
+
+    if (_suppressAutoRestart) {
+      _logger.d('Restart skipped because auto restart is suppressed');
       return;
     }
 
     _restartTimer?.cancel();
-    _restartTimer = Timer(_restartDelay, () async {
+    _restartTimer = Timer(delay ?? _restartDelay, () async {
+      if (_isDisposing || _isAssistantSpeaking || _suppressAutoRestart) {
+        return;
+      }
+
       if (_isListening) {
         return;
       }
