@@ -14,9 +14,15 @@ class WakeWordService {
   final List<String> _defaultWakeWords = [
     'يا مساعد',
     'مساعد',
+    'يا مساعدي',
+    'مساعدي',
     'hey assistant',
     'ok assistant',
     'assistant',
+    'siri',
+    'يا siri',
+    'nada',
+    'يا nada',
   ];
 
   final List<String> _customWakeWords = [];
@@ -35,7 +41,7 @@ class WakeWordService {
     };
 
     words.removeWhere((word) => word.trim().isEmpty);
-    return words.toList();
+    return words.toList()..sort((a, b) => b.length.compareTo(a.length));
   }
 
   // =================================
@@ -75,8 +81,44 @@ class WakeWordService {
       return false;
     }
 
+    final compactSpeechText = _compact(normalizedSpeechText);
+
     for (final word in activeWakeWords) {
+      if (word.isEmpty) {
+        continue;
+      }
+
       if (_containsPhrase(normalizedSpeechText, word)) {
+        return true;
+      }
+
+      final withoutYa = _removeLeadingYa(word);
+      if (withoutYa.isNotEmpty &&
+          _containsPhrase(normalizedSpeechText, withoutYa)) {
+        return true;
+      }
+
+      if (_compact(word).isNotEmpty &&
+          compactSpeechText.contains(_compact(word))) {
+        return true;
+      }
+
+      if (withoutYa.isNotEmpty &&
+          _compact(withoutYa).isNotEmpty &&
+          compactSpeechText.contains(_compact(withoutYa))) {
+        return true;
+      }
+    }
+
+    final normalizedAssistantName = _normalize(_assistantName);
+    if (normalizedAssistantName.isNotEmpty) {
+      if (_containsPhrase(normalizedSpeechText, normalizedAssistantName)) {
+        return true;
+      }
+
+      final compactAssistantName = _compact(normalizedAssistantName);
+      if (compactAssistantName.isNotEmpty &&
+          compactSpeechText.contains(compactAssistantName)) {
         return true;
       }
     }
@@ -194,26 +236,66 @@ class WakeWordService {
 
     final variants = <String>{
       normalizedWakeWord,
+      _removeLeadingYa(normalizedWakeWord),
     };
 
     if (!normalizedWakeWord.startsWith('يا ')) {
       variants.add('يا $normalizedWakeWord');
     }
 
+    final normalizedAssistantName = _normalize(_assistantName);
+    if (normalizedAssistantName.isNotEmpty) {
+      variants.add(normalizedAssistantName);
+      variants.add('يا $normalizedAssistantName');
+    }
+
+    variants.removeWhere((word) => word.trim().isEmpty);
     return variants.toList();
   }
 
   bool _containsPhrase(String text, String phrase) {
     final normalizedText = ' ${_normalize(text)} ';
     final normalizedPhrase = ' ${_normalize(phrase)} ';
-    return normalizedText.contains(normalizedPhrase);
+
+    if (normalizedPhrase.trim().isEmpty) {
+      return false;
+    }
+
+    if (normalizedText.contains(normalizedPhrase)) {
+      return true;
+    }
+
+    final phraseWithoutYa = _removeLeadingYa(normalizedPhrase.trim());
+    if (phraseWithoutYa.isNotEmpty &&
+        normalizedText.contains(' $phraseWithoutYa ')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  String _removeLeadingYa(String text) {
+    final normalized = _normalize(text);
+
+    if (normalized.startsWith('يا ')) {
+      return normalized.substring(3).trim();
+    }
+
+    return normalized;
+  }
+
+  String _compact(String text) {
+    return _normalize(text).replaceAll(' ', '');
   }
 
   String _normalize(String text) {
     return text
         .toLowerCase()
         .trim()
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .replaceAll(RegExp(r'[،,.!?؟]'), '');
+        .replaceAll(RegExp(r'[أإآ]'), 'ا')
+        .replaceAll('ى', 'ي')
+        .replaceAll('ة', 'ه')
+        .replaceAll(RegExp(r'[^\w\u0600-\u06FF\s]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 }
